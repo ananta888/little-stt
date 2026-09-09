@@ -26,11 +26,17 @@ Eine Serverdatenbank oder Benutzerverwaltung ist dafür nicht erforderlich.
 Ordner löschen entfernt keine Transkripte: Sie erscheinen anschließend ohne
 Ordner. Ein Transkript kann einschließlich aller gespeicherten Abschnitte bewusst
 gelöscht werden. Beim Löschen der aktuell geöffneten Sitzung wird auch die
-Live-Ansicht zurückgesetzt. **Neue Aufnahme · bisherige behalten** lässt ältere
-Transkripte in der Bibliothek; dort lassen sie sich erneut öffnen.
+Live-Ansicht zurückgesetzt. **+ Neue Aufnahme** im Live-Modus bzw. **+ Neue Live-Aufnahme** in der
+Bibliothek bereiten eine leere Sitzung mit wählbarer Sprache und Intervall vor.
+Erst **Mikrofon starten** aktiviert die Aufnahme. Ältere Transkripte bleiben erhalten.
 
 Es läuft immer nur die Warteschlange der aktuell ausgewählten Live-Sitzung.
-Ein Wechsel ist während einer laufenden Anfrage gesperrt. Bei abgelegten Sitzungen
+Das Öffnen eines anderen gespeicherten Transkripts ist während einer laufenden
+Anfrage gesperrt. Eine **neue Aufnahme** kann trotzdem vorbereitet werden: Der
+Browser bricht die alte Anfrage ab, wartet auf deren Abschluss im Client und
+speichert den ausstehenden Auftrag mit derselben ID und WAV-Datei. Das Backend
+kann die Inferenz noch abschließen; beim Wiederholen greift dessen Ergebniscache.
+Bei abgelegten Sitzungen
 mit Rückständen zeigt die Bibliothek „Verarbeitung / unvollständig“; erneutes
 Öffnen setzt deren Verarbeitung fort. Ein Mikrofon startet dadurch niemals.
 

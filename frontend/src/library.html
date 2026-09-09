@@ -1,5 +1,5 @@
 <section class="library" aria-labelledby="library-title">
-  <div class="section-top"><div><h2 id="library-title">Deine Transkripte</h2><p class="muted small">Live-Sitzungen und Dateien · in diesem Browser gespeichert</p></div><button class="secondary" (click)="refresh()" [disabled]="!enabled() || busy()">Aktualisieren</button></div>
+  <div class="section-top"><div><h2 id="library-title">Deine Transkripte</h2><p class="muted small">Live-Sitzungen und Dateien · in diesem Browser gespeichert</p></div><div class="library-top-actions"><button class="primary" (click)="newRecording.emit()" [disabled]="!canRecord() || busy()">+ Neue Live-Aufnahme</button><button class="secondary" (click)="refresh()" [disabled]="!enabled() || busy()">Aktualisieren</button></div></div>
   @if (!enabled()) { <p class="error" role="alert">Die lokale Bibliothek ist noch nicht verfügbar. Bitte Hinweise im Live-Modus prüfen und andere little-stt-Tabs schließen.</p> }
   @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
   @if (notice()) { <p class="notice" role="status">{{ notice() }}</p> }

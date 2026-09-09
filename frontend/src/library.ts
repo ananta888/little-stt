@@ -6,6 +6,7 @@ import { AudioInfo, bytes, documentText, Folder, LibraryData, Retention, reviewB
 
 @Component({selector: 'app-library', standalone: true, imports: [FormsModule, DatePipe], templateUrl: './library.html', styleUrl: './library.css'})
 export class LibraryComponent implements OnDestroy {
+  canRecord = input(false); newRecording = output<void>();
   enabled = input(false); visible = input(false); revision = input(0); locked = input(false);
   prepare = input<(id: string) => Promise<void>>(async () => {});
   openDocument = output<TranscriptDocument>(); changed = output<string>(); activity = output<boolean>();

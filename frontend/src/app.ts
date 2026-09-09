@@ -166,6 +166,12 @@ export class AppComponent implements OnDestroy {
     // A following edit may still be writing; wait for that tail before unlocking.
     const tail = this.fileSaves; await tail; if (this.fileSaves === tail) this.fileSaving.set(false);
   }
+  async newLiveRecording() {
+    if (!this.libraryReady() || this.liveActive() || this.live()?.opening() || this.busy() || this.merging() || this.fileSaving() || this.libraryBusy()) return;
+    this.libraryBusy.set(true);
+    try { await this.live()?.newSession(); this.mode.set('live'); }
+    finally { this.libraryBusy.set(false); }
+  }
   async openDocument(doc: TranscriptDocument) {
     if (this.liveActive() || this.live()?.pendingRequest() || this.busy() || this.merging() || this.libraryBusy() || this.fileSaving()) return;
     this.libraryBusy.set(true);

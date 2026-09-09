@@ -91,8 +91,11 @@ Voraussetzungen: ein aktueller Browser mit AudioWorklet, Web Locks und
 Mikrofonzugriff, **localhost oder HTTPS**. Den Tab geöffnet und das Gerät wach
 halten; Hintergrundbetrieb und gesperrte Mobilgeräte können die Aufnahme
 unterbrechen. Solche Unterbrechungen beenden die Aufnahme mit einem Hinweis.
-Nur ein Tab darf dieselbe lokale Bibliothek bearbeiten. **Neue Aufnahme · bisherige
-behalten** beginnt eine weitere Sitzung. Die vorherige bleibt in der Bibliothek.
+Nur ein Tab darf dieselbe lokale Bibliothek bearbeiten. **+ Neue Aufnahme** bereitet
+eine weitere Sitzung vor; danach Sprache/Intervall wählen und **Mikrofon starten** klicken. Auch die Bibliothek bietet **+ Neue
+Live-Aufnahme**. Ein noch laufender Whisper-Aufruf wird beim Vorbereiten abgebrochen
+und bleibt mit seinem Audio zur späteren Wiederholung gespeichert. Die bisherige
+Sitzung bleibt in der Bibliothek.
 Ausstehende Aufträge einer abgelegten Sitzung werden beim erneuten Öffnen dieser
 Sitzung fortgesetzt; die Warteschlange arbeitet jeweils für die ausgewählte Sitzung.
 

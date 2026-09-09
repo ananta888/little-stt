@@ -8,16 +8,17 @@
   </div>
   <div class="record-row">
     @if (!session()) {
-      <button class="primary" (click)="start()" [disabled]="!storageReady() || phase() === 'loading'">● Mikrofon starten</button>
+      <button class="primary" (click)="start()" [disabled]="!storageReady() || phase() === 'loading' || opening() || blocked()">● Mikrofon starten</button>
     } @else if (recording()) {
       <button class="stop-button" (click)="stop()" [disabled]="phase() === 'stopping'">{{ phase() === 'stopping' ? 'Rest wird gesichert …' : '■ Aufnahme beenden' }}</button>
     } @else {
       <span class="tag">AUFNAHME BEENDET</span>
-      <button class="text-button" (click)="newSession()" [disabled]="pendingRequest() || opening()">Neue Aufnahme · bisherige behalten</button>
+      <button class="primary" (click)="newSession()" [disabled]="!storageReady() || opening() || blocked()">{{ opening() ? 'Neue Aufnahme wird vorbereitet …' : '+ Neue Aufnahme' }}</button>
     }
     <span class="clock" [class.on-air]="phase() === 'recording'">{{ time(session()?.duration ?? 0) }}</span>
     <meter min="0" max="1" [value]="level()" aria-label="Mikrofonpegel"></meter>
   </div>
+  @if (session() && !recording()) { <p class="status-line">Du siehst eine gespeicherte Sitzung. Mit „Neue Aufnahme“ bereitest du ein neues Mikrofon-Transkript vor; das bisherige bleibt in der Bibliothek. @if (pending()) { Seine ausstehenden Whisper-Aufträge werden beim erneuten Öffnen fortgesetzt. }</p> }
   @if (phase() === 'loading') { <p role="status">Gespeicherte Sitzung wird geprüft …</p> }
   @if (phase() === 'preparing') { <p role="status">Mikrofonfreigabe und Vosk-Modell werden vorbereitet. Bitte erst nach dem Start des Zählers sprechen.</p> }
   @if (phase() === 'recording') { <p class="status-line" role="status">Aufnahme läuft · {{ pending() }} Abschnitt(e) warten auf Whisper. Nächster Abschnitt nach {{ session()!.interval / 60 }} Minuten plus 5 Sekunden Kontext.</p> }

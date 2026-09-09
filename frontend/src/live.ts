@@ -39,6 +39,7 @@ export class LiveComponent implements OnInit, OnDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private releaseLock?: () => void;
   private request?: AbortController;
+  private requestSettled = Promise.resolve();
   private lastPersisted = 0;
   private checkpointBytes = 0;
   private unload = (event: BeforeUnloadEvent) => {
@@ -78,7 +79,7 @@ export class LiveComponent implements OnInit, OnDestroy {
   }
 
   async start() {
-    if (this.blocked() || !this.storageReady() || this.session() || this.recording()) return;
+    if (this.blocked() || this.opening() || !this.storageReady() || this.session() || this.recording()) return;
     this.error.set(''); this.warning.set('');
     const session: LiveSessionData = {id: crypto.randomUUID(), created: new Date().toISOString(), language: this.language,
       interval: Number(this.interval), duration: 0, preview: '', partial: '', words: [], state: 'recording', warning: '',
@@ -165,13 +166,17 @@ export class LiveComponent implements OnInit, OnDestroy {
     const first = this.chunks().find(c => c.status !== 'done');
     if (!first || first.status === 'failed' || first.retryAt > Date.now()) return;
     this.sending = true; this.pendingRequest.set(true);
+    let finishRequest!: () => void;
+    this.requestSettled = new Promise<void>(resolve => { finishRequest = resolve; });
     const id = first.id, sessionId = first.sessionId;
     this.patch(id, {status: 'processing', attempts: first.attempts + 1, error: ''});
     this.persistChunks();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await this.saves;
+      if (this.opening() || this.destroyed) return;
       const blob = this.volatileAudio.get(id) ?? await this.store.audio(id);
+      if (this.opening() || this.destroyed) return;
       if (!blob) throw new LiveRequestError('Gespeichertes Audio fehlt. Vorhandene Texte exportieren und eine neue Sitzung beginnen.', false);
       const body = new FormData(); body.append('file', blob, `${id}.wav`);
       const fields = {session_id: sessionId, chunk_id: id, sequence: first.sequence, window_start_sample: first.windowStart,
@@ -201,6 +206,7 @@ export class LiveComponent implements OnInit, OnDestroy {
       }
     } finally {
       clearTimeout(timer); this.request = undefined; this.sending = false; this.pendingRequest.set(false);
+      finishRequest();
       if (!this.destroyed && this.chunks().find(c => c.id === id)?.status === 'done') void this.pump();
     }
   }
@@ -208,6 +214,7 @@ export class LiveComponent implements OnInit, OnDestroy {
   edit(id: string, text: string) { if (this.opening()) return; this.patch(id, {draft: text}); this.persistChunks(); }
   useSuggestion(id: string) { if (this.opening()) return; this.patch(id, {draft: undefined}); this.persistChunks(); }
   retry() {
+    if (this.opening()) return;
     this.paused.set(false);
     this.chunks.update(cs => cs.map(c => ['retry', 'failed'].includes(c.status) ? {...c, status: 'queued', retryAt: 0, error: ''} : c));
     this.persistChunks(); void this.pump();
@@ -233,12 +240,20 @@ export class LiveComponent implements OnInit, OnDestroy {
     if (this.storageReady()) this.audioIds.set(new Set([...(await this.store.library()).audio.map(a => a.id), ...this.volatileAudio.keys()]));
   }
   async newSession() {
-    if (this.recording() || this.pendingRequest() || this.opening()) return;
+    if (!this.storageReady() || this.recording() || this.opening()) return;
+    const wasPaused = this.paused();
     this.opening.set(true); this.paused.set(true);
     try {
-      await this.flush(); await this.store.detach(); this.resetSession(); this.changed.emit();
-    } catch (error) { this.error.set(this.message(error)); }
-    finally { this.opening.set(false); this.paused.set(false); }
+      // Retire the old request before detaching its session. Its WAV stays durable.
+      // The backend may finish inference; reopening retries with the same chunk ID.
+      this.request?.abort(); await this.requestSettled;
+      this.chunks.update(cs => cs.map(c => ['processing', 'retry'].includes(c.status)
+        ? {...c, status: 'queued', retryAt: 0, error: ''} : c));
+      this.persistChunks(); await this.flush();
+      await this.store.detach(); this.resetSession(); this.phase.set('ready'); this.changed.emit();
+      this.paused.set(false);
+    } catch (error) { this.error.set(this.message(error)); this.paused.set(wasPaused); }
+    finally { this.opening.set(false); }
   }
   async openSession(id: string) {
     if (this.recording() || this.pendingRequest() || this.opening()) return;

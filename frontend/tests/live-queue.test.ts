@@ -78,3 +78,42 @@ it('recovers a WAV and edited text after a storage quota failure without discard
   expect((await component['store'].restore()).chunks[0].draft).toBe('Nicht verlieren');
   expect(add).toHaveBeenCalledTimes(2); await expect(component.flush()).resolves.toBeUndefined();
 });
+
+it('prepares a new session while Whisper is hanging, preserving the old draft and retryable WAV', async () => {
+  const component = await fixture(); component.phase.set('ready');
+  const fetcher = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    init.signal!.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')));
+  })); vi.stubGlobal('fetch', fetcher);
+  const request = component['pump'](); await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  component.edit('c', 'Alte Korrektur');
+  await component.newSession(); await request;
+  expect(component.session()).toBeNull(); expect(component.pendingRequest()).toBe(false); expect(component.opening()).toBe(false);
+  expect(component.phase()).toBe('ready'); expect((await component['store'].restore()).session).toBeUndefined();
+  const old = await component['store'].document('s'); expect(old).toBeDefined();
+  const saved = (await component['store'].library()).chunks[0];
+  expect(saved.status).toBe('queued'); expect(saved.draft).toBe('Alte Korrektur');
+  expect(await (await component['store'].audio('c'))!.text()).toBe('wav');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(result())));
+  await component.openSession('s');
+  await vi.waitFor(() => expect(component.chunks()[0].status).toBe('done')); await component['saves'];
+  expect(component.finalText()).toBe('Alte Korrektur'); expect(component.chunks()[0].result?.chunk_id).toBe('c');
+});
+
+it('does not submit old audio if a new session is requested while the WAV is being read', async () => {
+  const component = await fixture(); component.phase.set('ready');
+  let resolve!: (blob: Blob) => void;
+  const read = vi.spyOn(component['store'], 'audio').mockImplementationOnce(() => new Promise<Blob>(r => { resolve = r; }));
+  const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+  const request = component['pump'](); await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+  const change = component.newSession(); resolve(new Blob(['wav'])); await change; await request;
+  expect(fetcher).not.toHaveBeenCalled(); expect(component.session()).toBeNull();
+  expect((await component['store'].library()).chunks[0].status).toBe('queued');
+  expect(await (await component['store'].audio('c'))!.text()).toBe('wav');
+});
+
+it('keeps the current session visible if preparing a new one encounters unsaved data', async () => {
+  const component = await fixture(); component.saveFailed.set(true); component.paused.set(true);
+  await component.newSession(); expect(component.session()?.id).toBe('s');
+  expect(component.error()).toContain('nicht vollständig gespeichert'); expect(component.opening()).toBe(false);
+  expect(component.paused()).toBe(true); expect(await component['store'].audio('c')).toBeDefined();
+});

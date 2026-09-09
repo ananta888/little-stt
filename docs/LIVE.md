@@ -95,8 +95,11 @@ Abschnitt erneut berechnet werden; im Frontend ersetzt das Ergebnis weiterhin
 denselben Abschnitt und erzeugt keinen doppelten Textblock.
 
 Web Locks verhindert konkurrierende Bearbeitungen derselben Bibliothek in mehreren
-Tabs. Während Aufnahme oder einer laufenden Anfrage bleiben Änderungen in der
-Bibliothek gesperrt. Bereits eingeplante Schreibvorgänge werden vor einer Freigabe
+Tabs. Während Aufnahme oder einer laufenden Anfrage bleiben Änderungen an
+Bibliotheksdokumenten gesperrt. **Neue Aufnahme** ist nach dem Stoppen auch bei
+laufender Whisper-Anfrage möglich: Diese wird im Browser abgebrochen und der
+Auftrag mitsamt Audio für das spätere erneute Öffnen gespeichert. Das Mikrofon
+startet erst über **Mikrofon starten**. Bereits eingeplante Schreibvorgänge werden vor einer Freigabe
 oder Löschung abgewartet. Mikrofonverlust, Stummschaltung oder ein suspendierter AudioContext beenden
 die Aufnahme mit sichtbarer Meldung. Ein Ausfall oder mehr als ungefähr 30 Sekunden
 Vosk-Rückstand beendet dagegen nur die Vorschau; Audioaufnahme und Whisper laufen
