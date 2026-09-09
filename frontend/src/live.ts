@@ -4,6 +4,7 @@ import { DecimalPipe } from '@angular/common';
 import { AudioWindow, encodeWav, INTERVAL, LiveChunk, LiveResult, LiveSessionData, RATE, stitch, textFor, WindowAssembler } from './live-core';
 import { LiveStore } from './live-store';
 import { MicrophoneCapture } from './live-capture';
+import { AudioSource, sourceLabel } from './audio-sources';
 
 @Component({selector: 'app-live', standalone: true, imports: [FormsModule, DecimalPipe], templateUrl: './live.html', styleUrl: './live.css'})
 export class LiveComponent implements OnInit, OnDestroy {
@@ -20,6 +21,9 @@ export class LiveComponent implements OnInit, OnDestroy {
   storageReady = signal(false); paused = signal(false); pendingRequest = signal(false);
   expanded = signal<Set<string>>(new Set());
   language = 'de'; interval = INTERVAL; useVosk = true;
+  source: AudioSource = 'microphone'; includeMicrophone = false; microphoneId = ''; inputId = '';
+  devices = signal<MediaDeviceInfo[]>([]); loadingDevices = signal(false);
+  sourceLabel = sourceLabel;
   recording = computed(() => ['preparing', 'recording', 'stopping'].includes(this.phase()));
   pending = computed(() => this.chunks().filter(c => c.status !== 'done').length);
   finalText = computed(() => this.chunks().map(textFor).filter(Boolean).join('\n\n'));
@@ -64,6 +68,7 @@ export class LiveComponent implements OnInit, OnDestroy {
         this.session.set({...saved.session, state: 'stopped'});
         this.language = saved.session.language; this.interval = saved.session.interval;
         this.useVosk = saved.session.voskEnabled ?? saved.session.language === 'de';
+        this.source = saved.session.audioSource ?? 'microphone'; this.includeMicrophone = saved.session.includeMicrophone ?? false;
         this.warning.set(saved.session.state === 'recording'
           ? 'Unterbrochene Sitzung wiederhergestellt. Vollständige Abschnitte sind gesichert; Audio seit der letzten Abschnittsgrenze muss gegebenenfalls erneut aufgenommen werden. Das Mikrofon bleibt aus.'
           : saved.session.warning);
@@ -79,11 +84,12 @@ export class LiveComponent implements OnInit, OnDestroy {
   }
 
   async start() {
-    if (this.blocked() || this.opening() || !this.storageReady() || this.session() || this.recording()) return;
+    if (this.blocked() || this.opening() || this.loadingDevices() || !this.storageReady() || this.session() || this.recording()) return;
     this.error.set(''); this.warning.set('');
     const session: LiveSessionData = {id: crypto.randomUUID(), created: new Date().toISOString(), language: this.language,
       interval: Number(this.interval), duration: 0, preview: '', partial: '', words: [], state: 'recording', warning: '',
-      voskEnabled: this.useVosk && this.language === 'de'};
+      voskEnabled: this.useVosk && this.language === 'de', audioSource: this.source,
+      includeMicrophone: this.source !== 'microphone' && this.includeMicrophone};
     this.session.set(session); this.assembler = new WindowAssembler(session.interval);
     this.phase.set('preparing'); this.activity.emit(true);
     this.persistSession();
@@ -101,7 +107,7 @@ export class LiveComponent implements OnInit, OnDestroy {
       this.warning.set(message); void this.stop();
     });
     try {
-      await this.capture.start(this.useVosk && this.language === 'de');
+      await this.capture.start(this.useVosk && this.language === 'de', {source: this.source, includeMicrophone: this.includeMicrophone, microphoneId: this.microphoneId, inputId: this.inputId});
       if (this.phase() === 'preparing') this.phase.set('recording');
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) this.error.set(this.message(error));
@@ -109,6 +115,19 @@ export class LiveComponent implements OnInit, OnDestroy {
     }
   }
 
+  async loadDevices() {
+    if (this.recording() || this.session() || this.loadingDevices() || this.blocked()) return;
+    this.loadingDevices.set(true); this.error.set('');
+    let stream: MediaStream | undefined;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
+      // Release the temporary permission probe before enumerating devices.
+      stream.getTracks().forEach(t => t.stop());
+      const inputs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+      if (!this.destroyed) this.devices.set(inputs);
+    } catch (error) { if (!this.destroyed) this.error.set(this.message(error)); }
+    finally { stream?.getTracks().forEach(t => t.stop()); this.loadingDevices.set(false); }
+  }
   private stopTask?: Promise<void>;
   stop(): Promise<void> { return this.stopTask ??= this.finish(); }
   private async finish() {
@@ -267,6 +286,7 @@ export class LiveComponent implements OnInit, OnDestroy {
       if (saved.session) {
         this.language = saved.session.language; this.interval = saved.session.interval;
         this.useVosk = saved.session.voskEnabled ?? saved.session.language === 'de';
+        this.source = saved.session.audioSource ?? 'microphone'; this.includeMicrophone = saved.session.includeMicrophone ?? false;
         this.warning.set(saved.session.warning); this.persistSession();
       }
       await this.refreshAudio();
@@ -312,9 +332,11 @@ export class LiveComponent implements OnInit, OnDestroy {
     return {queued: 'Wartet auf Whisper', processing: 'Whisper arbeitet', retry: 'Wiederholung folgt', failed: 'Bitte prüfen', done: 'Mit Whisper nachbearbeitet'}[chunk.status];
   }
   private message(error: unknown) {
-    if (error instanceof DOMException && error.name === 'NotAllowedError') return 'Mikrofonzugriff wurde nicht erlaubt. Bitte die Browserfreigabe prüfen.';
-    if (error instanceof DOMException && error.name === 'NotFoundError') return 'Kein Mikrofon gefunden.';
+    if (error instanceof DOMException && error.name === 'NotAllowedError') return 'Audiozugriff oder Bildschirmfreigabe wurde nicht erlaubt. Bitte die Browserfreigabe prüfen.';
+    if (error instanceof DOMException && error.name === 'NotFoundError') return 'Keine passende Audioquelle gefunden.';
     if (error instanceof DOMException && error.name === 'AbortError') return 'Anfrage unterbrochen oder Zeitlimit erreicht. Der Abschnitt bleibt gespeichert.';
+    if (error instanceof DOMException && error.name === 'NotSupportedError') return 'Dieser Browser unterstützt diese Audiofreigabe nicht. Einen unterstützten Browser oder einen eingerichteten Loopback-Audioeingang verwenden.';
+    if (error instanceof DOMException && error.name === 'OverconstrainedError') return 'Der ausgewählte Audioeingang ist nicht verfügbar. Audioeingänge erneut laden und auswählen.';
     return error instanceof Error ? error.message : 'Unerwarteter Fehler.';
   }
   ngOnDestroy() {

@@ -1,4 +1,8 @@
-# Live-Mikrofon mit periodischer Whisper-Nachbearbeitung
+# Live-Aufnahme mit periodischer Whisper-Nachbearbeitung
+
+Die [Audioquellen-Auswahl](AUDIOQUELLEN.md) ergänzt Mikrofonaufnahmen um Tab-,
+System- und Loopback-Ton mit optionaler Mikrofonmischung. Alle Quellen verwenden
+die hier beschriebenen Abschnitte, Warteschlangen und Speicherregeln.
 
 Dieser Modus ist implementiert. Die Modelltrainingsfunktionen im
 [Lernplan](LERNPLAN.md) bleiben ein eigener, noch geplanter Ausbau.
@@ -6,7 +10,8 @@ Dieser Modus ist implementiert. Die Modelltrainingsfunktionen im
 ## Audio und Abschnittsgrenzen
 
 `MicrophoneCapture` öffnet einen AudioContext mit 16 kHz und verbindet den
-Mikrofonstream mit `public/audio-capture.js`. Dieser AudioWorklet mischt
+gewählten Audiostream bzw. die Mischung aus Quelle und Mikrofon mit
+`public/audio-capture.js`. Dieser AudioWorklet mischt
 gegebenenfalls mehrere Kanäle auf Mono und überträgt Blöcke mit bis zu 4096
 Samples. Die Audioausgabe des Worklets ist stumm; das Mikrofon wird nicht über
 die Lautsprecher wiedergegeben.

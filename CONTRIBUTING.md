@@ -24,7 +24,9 @@ npm test
 npm run build
 ```
 
-Die CI prüft Backend- und Frontend-Tests sowie Angular-Build ohne Modelldownload. Änderungen an
+Die CI prüft Backend- und Frontend-Tests sowie Angular-Build auf Windows, macOS
+und Linux ohne Modelldownload. Hardware-Audiofreigaben zusätzlich anhand der
+[Audioquellen-Prüfung](docs/AUDIOQUELLEN.md) prüfen. Änderungen an
 Erkennung, Audioverarbeitung oder Modellauslieferung zusätzlich mit einer lokalen
 Aufnahme und den echten Modellen prüfen; verwendetes Format und Ergebnis im
 Pull Request angeben.

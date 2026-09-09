@@ -1,6 +1,18 @@
 <section class="upload-card live-controls" aria-labelledby="live-title">
-  <div class="section-top"><h2 id="live-title"><span class="step">01</span> Live aufnehmen</h2><span class="tag">MIKROFON</span></div>
+  <div class="section-top"><h2 id="live-title"><span class="step">01</span> Live aufnehmen</h2><span class="tag">{{ sourceLabel(session()?.audioSource ?? source) }}</span></div>
   <p class="intro-live">Vosk schreibt sofort mit. Whisper überarbeitet die Aufnahme regelmäßig im Hintergrund.</p>
+  <div class="source-settings">
+    <label class="language-label">Audioquelle <select [(ngModel)]="source" [disabled]="!!session() || recording() || loadingDevices()"><option value="microphone">Nur Mikrofon</option><option value="tab">Browser-Tab (z. B. YouTube)</option><option value="system">Systemton / Bildschirm (z. B. Zoom-App)</option><option value="input">Loopback-Audioeingang</option></select></label>
+    @if (source !== 'microphone') { <label class="toggle"><input type="checkbox" [(ngModel)]="includeMicrophone" [disabled]="!!session() || recording() || loadingDevices()"> Zusätzlich Mikrofon aufnehmen</label> }
+    @if (source === 'microphone' || includeMicrophone || source === 'input') {
+      <button class="text-button" (click)="loadDevices()" [disabled]="!!session() || recording() || loadingDevices() || !storageReady()">{{ loadingDevices() ? 'Audioeingänge werden geladen …' : 'Audioeingänge laden' }}</button>
+      @if (source === 'input') { <label class="language-label">Loopback-Eingang <select [(ngModel)]="inputId" [disabled]="!!session() || recording() || loadingDevices()"><option value="">Bitte auswählen</option>@for (device of devices(); track device.deviceId) { <option [value]="device.deviceId">{{ device.label || 'Audioeingang' }}</option> }</select></label> }
+      @if (source === 'microphone' || includeMicrophone) { <label class="language-label">Mikrofon <select [(ngModel)]="microphoneId" [disabled]="!!session() || recording() || loadingDevices()"><option value="">{{ source === 'input' ? 'Separates Mikrofon auswählen' : 'Standardmikrofon' }}</option>@for (device of devices(); track device.deviceId) { <option [value]="device.deviceId">{{ device.label || 'Audioeingang' }}</option> }</select></label> }
+    }
+  </div>
+  @if (source === 'tab' || source === 'system') { <p class="source-help">Beim Start {{ source === 'tab' ? 'den gewünschten Tab' : '„Gesamter Bildschirm“' }} wählen und <strong>Audio teilen</strong> aktivieren. Ohne Tonfreigabe wird die Aufnahme nicht gestartet. Der Browser fordert auch eine Bildfreigabe an; little stt verarbeitet und speichert ausschließlich Audio. {{ includeMicrophone ? 'Dein Mikrofon wird zusätzlich beigemischt. Kopfhörer helfen gegen doppelt aufgenommenen Ton.' : 'Dein Mikrofon wird nicht angefordert.' }}</p> }
+  @if (source === 'input') { <p class="source-help">Hier einen eingerichteten virtuellen Audioeingang wählen, der den Laptop-Ton liefert, z. B. BlackHole unter macOS oder eine Monitor-Quelle unter Linux. „Audioeingänge laden“ benötigt kurz eine Audiofreigabe. {{ includeMicrophone ? 'Für deine Stimme zusätzlich ein anderes, physisches Mikrofon auswählen.' : 'Ein physisches Mikrofon wird für die Aufnahme nicht zusätzlich geöffnet.' }}</p> }
+  <details class="source-help"><summary>Windows, macOS, Linux und WSL2</summary><p>Tab-Ton in einem unterstützten Browser freigeben. Bei Systemton hängt die Audiofreigabe vom Betriebssystem und Browser ab. Falls kein Ton angeboten wird, einen Loopback-Eingang einrichten und oben auswählen.</p><p>WSL2: Diese Seite im Windows-Browser öffnen; das Python-Backend darf in WSL2 laufen. So wird der Windows-Ton am Laptop erfasst.</p><a href="https://github.com/ananta888/little-stt/blob/main/docs/AUDIOQUELLEN.md" target="_blank" rel="noopener noreferrer">Einrichtung je Plattform</a></details>
   <div class="settings">
     <label class="language-label">Sprache <select [(ngModel)]="language" [disabled]="!!session() || recording()"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="auto">Automatisch</option></select></label>
     <label class="language-label">Whisper alle <select [(ngModel)]="interval" [disabled]="!!session() || recording()"><option [ngValue]="300">5 Minuten</option><option [ngValue]="60">1 Minute</option></select></label>
@@ -8,7 +20,7 @@
   </div>
   <div class="record-row">
     @if (!session()) {
-      <button class="primary" (click)="start()" [disabled]="!storageReady() || phase() === 'loading' || opening() || blocked()">● Mikrofon starten</button>
+      <button class="primary" (click)="start()" [disabled]="!storageReady() || phase() === 'loading' || opening() || blocked() || loadingDevices() || (source === 'input' && (!inputId || (includeMicrophone && !microphoneId)))">{{ source === 'microphone' ? '● Mikrofon starten' : '● Tonaufnahme starten' }}</button>
     } @else if (recording()) {
       <button class="stop-button" (click)="stop()" [disabled]="phase() === 'stopping'">{{ phase() === 'stopping' ? 'Rest wird gesichert …' : '■ Aufnahme beenden' }}</button>
     } @else {
@@ -16,11 +28,11 @@
       <button class="primary" (click)="newSession()" [disabled]="!storageReady() || opening() || blocked()">{{ opening() ? 'Neue Aufnahme wird vorbereitet …' : '+ Neue Aufnahme' }}</button>
     }
     <span class="clock" [class.on-air]="phase() === 'recording'">{{ time(session()?.duration ?? 0) }}</span>
-    <meter min="0" max="1" [value]="level()" aria-label="Mikrofonpegel"></meter>
+    <meter min="0" max="1" [value]="level()" aria-label="Aufnahmepegel"></meter>
   </div>
-  @if (session() && !recording()) { <p class="status-line">Du siehst eine gespeicherte Sitzung. Mit „Neue Aufnahme“ bereitest du ein neues Mikrofon-Transkript vor; das bisherige bleibt in der Bibliothek. @if (pending()) { Seine ausstehenden Whisper-Aufträge werden beim erneuten Öffnen fortgesetzt. }</p> }
+  @if (session() && !recording()) { <p class="status-line">Du siehst eine gespeicherte Sitzung. Mit „Neue Aufnahme“ bereitest du ein neues Live-Transkript vor; das bisherige bleibt in der Bibliothek. @if (pending()) { Seine ausstehenden Whisper-Aufträge werden beim erneuten Öffnen fortgesetzt. }</p> }
   @if (phase() === 'loading') { <p role="status">Gespeicherte Sitzung wird geprüft …</p> }
-  @if (phase() === 'preparing') { <p role="status">Mikrofonfreigabe und Vosk-Modell werden vorbereitet. Bitte erst nach dem Start des Zählers sprechen.</p> }
+  @if (phase() === 'preparing') { <p role="status">Audiofreigabe und Vosk-Modell werden vorbereitet. Bitte erst nach dem Start des Zählers sprechen.</p> }
   @if (phase() === 'recording') { <p class="status-line" role="status">Aufnahme läuft · {{ pending() }} Abschnitt(e) warten auf Whisper. Nächster Abschnitt nach {{ session()!.interval / 60 }} Minuten plus 5 Sekunden Kontext.</p> }
   <p class="privacy">Audio und Texte werden automatisch in deiner Bibliothek in diesem Browser gespeichert. Nach deiner Freigabe wird Audio standardmäßig gelöscht; in der Bibliothek kannst du es behalten. Audioabschnitte gehen zur Analyse an dein Python-Backend. Tab geöffnet lassen; der aktuelle Aufnahmeabschnitt ist erst nach Abschluss gesichert.</p>
 </section>

@@ -1,11 +1,12 @@
 import type { LiveVosk } from './live-vosk';
 import { VoskWord } from './types';
+import { acquireAudio, CaptureOptions, connectAudio, defaultCapture } from './audio-sources';
 
 export class MicrophoneCapture {
   private context?: AudioContext;
-  private stream?: MediaStream;
+  private streams: MediaStream[] = [];
   private node?: AudioWorkletNode;
-  private source?: MediaStreamAudioSourceNode;
+  private inputs: AudioNode[] = [];
   private vosk?: LiveVosk;
   private abort = new AbortController();
   private active = false;
@@ -18,14 +19,26 @@ export class MicrophoneCapture {
               private warning: (text: string) => void,
               private interrupted: (text: string) => void) {}
 
-  async start(withVosk: boolean) {
-    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Mikrofonzugriff benötigt localhost oder HTTPS und einen unterstützten Browser.');
+  async start(withVosk: boolean, options: CaptureOptions = defaultCapture) {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Audioaufnahme benötigt localhost oder HTTPS und einen unterstützten Browser.');
     this.context = new AudioContext({sampleRate: 16000});
     if (!this.context.audioWorklet || this.context.sampleRate !== 16000) throw new Error('Dieser Browser unterstützt die benötigte Audioaufnahme mit 16 kHz nicht.');
-    await this.context.resume();
-    const stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}, video: false});
-    if (this.abort.signal.aborted) { stream.getTracks().forEach(t => t.stop()); throw new DOMException('Abgebrochen', 'AbortError'); }
-    this.stream = stream;
+    // getDisplayMedia must run before awaiting resume(), while the click is active.
+    const acquisition = acquireAudio(options, this.abort.signal);
+    try {
+      const [streams] = await Promise.all([acquisition, this.context.resume()]);
+      this.streams = streams;
+    } catch (error) {
+      this.abort.abort();
+      void acquisition.then(streams => streams.forEach(s => s.getTracks().forEach(t => t.stop()))).catch(() => {});
+      throw error;
+    }
+    if (this.abort.signal.aborted) { this.stopInputs(); throw new DOMException('Abgebrochen', 'AbortError'); }
+    // Also watch the video track: ending the sharing UI ends this recording.
+    for (const stream of this.streams) for (const track of stream.getTracks()) {
+      track.onended = () => { if (!this.stopping) this.interrupted('Eine Audioquelle oder die Freigabe wurde beendet. Die Aufnahme wird gesichert.'); };
+      track.onmute = () => { if (!this.stopping && track.kind === 'audio') this.interrupted('Eine Audioquelle wurde stummgeschaltet oder unterbrochen. Die Aufnahme wird gesichert.'); };
+    }
     await this.context.audioWorklet.addModule('/audio-capture.js');
     if (withVosk) {
       try {
@@ -46,24 +59,22 @@ export class MicrophoneCapture {
       if (data.type === 'stopped') this.resolveFlush?.();
     };
     this.node.onprocessorerror = () => this.interrupted('Audioverarbeitung unterbrochen. Die Aufnahme wird beendet.');
-    this.source = this.context.createMediaStreamSource(stream);
-    this.source.connect(this.node); this.node.connect(this.context.destination);
+    if (this.streams.some(s => s.getTracks().some(t => t.readyState === 'ended'))) throw new Error('Audioquelle nicht mehr verfügbar. Bitte neu starten.');
+    this.inputs = connectAudio(this.context, this.streams, this.node);
+    this.node.connect(this.context.destination);
     this.active = true;
-    for (const track of stream.getAudioTracks()) {
-      track.onended = () => { if (!this.stopping) this.interrupted('Das Mikrofon wurde getrennt. Die Aufnahme wird beendet.'); };
-      track.onmute = () => { if (!this.stopping) this.interrupted('Das Mikrofon wurde stummgeschaltet oder unterbrochen. Bitte eine neue Aufnahme starten.'); };
-    }
     this.context.onstatechange = () => {
       if (this.active && !this.stopping && this.context?.state !== 'running') this.interrupted('Der Browser hat die Audioaufnahme unterbrochen. Der vorhandene Abschnitt wird gesichert.');
     };
   }
+  private stopInputs() { this.streams.forEach(s => s.getTracks().forEach(t => t.stop())); }
   stop(): Promise<void> {
     return this.stopPromise ??= this.stopInternal();
   }
   private async stopInternal() {
     this.stopping = true; this.abort.abort();
     // Stop the hardware immediately, but drain already captured worklet messages first.
-    this.stream?.getTracks().forEach(track => track.stop());
+    this.stopInputs();
     if (this.node) {
       await new Promise<void>(resolve => {
         const timer = setTimeout(() => { this.warning('Der letzte Audio-Puffer konnte nicht vollständig bestätigt werden. Bitte das Ende prüfen.'); resolve(); }, 2000);
@@ -71,7 +82,7 @@ export class MicrophoneCapture {
         this.node!.port.postMessage('stop');
       });
     }
-    this.active = false; this.source?.disconnect(); this.node?.disconnect(); this.node?.port.close();
+    this.active = false; this.inputs.forEach(n => n.disconnect()); this.inputs = []; this.node?.disconnect(); this.node?.port.close();
     if (this.context && this.context.state !== 'closed') await this.context.close();
   }
   async finishPreview() {

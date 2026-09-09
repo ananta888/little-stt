@@ -1,3 +1,4 @@
+import type { AudioSource } from './audio-sources';
 import { Transcript, VoskWord, Word } from './types';
 
 export const RATE = 16000;
@@ -19,6 +20,7 @@ export interface LiveChunk {
 export interface LiveSessionData {
   id: string; created: string; language: string; interval: number; duration: number;
   voskEnabled?: boolean;
+  audioSource?: AudioSource; includeMicrophone?: boolean;
   preview: string; partial: string; words: VoskWord[];
   state: 'recording' | 'stopped'; warning: string;
 }

@@ -56,8 +56,8 @@ Zeitstempel, Wortwerte, Segmentmetriken und die Herkunft des finalen Texts.
 
 ## Live-Transkription
 
-**Live-Mikrofon** öffnen, Sprache wählen und **Mikrofon starten** klicken.
-Den Mikrofonzugriff im Browser erlauben und erst sprechen, wenn der Aufnahmezähler
+**Live-Mikrofon** öffnen, Audioquelle und Sprache wählen. **Mikrofon starten**
+bzw. **Tonaufnahme starten** klicken. Die benötigte Freigabe im Browser erlauben und erst sprechen, wenn der Aufnahmezähler
 läuft. Für Deutsch zeigt Vosk sofort eine Vorschau. Bei Englisch oder automatischer
 Spracherkennung entsteht der Text mit der anschließenden Whisper-Analyse.
 
@@ -106,6 +106,30 @@ werden. Das Backend verarbeitet jeweils einen Whisper-Auftrag, daher kann bei
 langsamer Hardware ein Rückstand entstehen.
 
 Technische Details und Testumfang: [Live-Modus](docs/LIVE.md).
+
+## YouTube, Zoom und anderer Laptop-Ton
+
+Unter **Live-Mikrofon → Audioquelle** stehen **Nur Mikrofon**, **Browser-Tab**,
+**Systemton / Bildschirm** und **Loopback-Audioeingang** zur Wahl. Bei Tab-,
+System- oder Loopback-Ton kann **Zusätzlich Mikrofon aufnehmen** eingeschaltet
+werden. Ohne Mikrofonhaken erfasst die Tab-/Bildschirmaufnahme nur die freigegebene
+Tonquelle. Die Mischung wird wie bisher mit Vosk/Whisper transkribiert und in der
+Bibliothek verwaltet.
+
+Für YouTube oder Zoom im Browser den entsprechenden Tab **mit Audio** freigeben.
+Für die Zoom-Desktop-App den gesamten Bildschirm mit Audio freigeben, sofern der
+Browser das anbietet. Die App prüft auf einen vorhandenen Audiotrack und meldet
+fehlenden Ton. Die angeforderte Videospur wird nicht verarbeitet oder gespeichert.
+
+Für plattformübergreifenden Systemton ist gegebenenfalls Einrichtung nötig:
+Unter macOS z. B. BlackHole, unter Linux ein PipeWire-/PulseAudio-Monitor, unter
+Windows eine angebotene Systemaudiofreigabe oder ein eingerichteter Loopback-Eingang.
+Das sind separate, vom Nutzer eingerichtete Audiowege; little stt installiert keine
+Treiber. Bei **WSL2** den **Windows-Browser** für die Aufnahme verwenden; das Backend
+kann in WSL2 auf localhost laufen. Systemweite Aufnahme ohne Einrichtung ist
+nicht für jede Browser-/OS-Kombination verfügbar.
+
+[Einrichtung für Windows 11, macOS, Linux und WSL2](docs/AUDIOQUELLEN.md)
 
 ## Transkripte, Ordner und Speicher verwalten
 
@@ -216,7 +240,8 @@ Whisper-Modellcache bleiben unabhängig davon bestehen.
 ## Mitwirken und Lizenz
 
 Hinweise für Beiträge und Tests stehen in [CONTRIBUTING.md](CONTRIBUTING.md).
-Die GitHub Actions prüfen Backend- und Frontend-Tests sowie den Angular-Build;
+Die GitHub Actions prüfen Backend- und Frontend-Tests sowie den Angular-Build
+auf Windows, macOS und Linux;
 echte Modellinferenz und Training sind keine Bestandteile dieser CI-Prüfung.
 
 Der eigene Quellcode und die Projektdokumentation stehen unter der
