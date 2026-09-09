@@ -1,0 +1,142 @@
+# little stt
+
+[![CI](https://github.com/ananta888/little-stt/actions/workflows/ci.yml/badge.svg)](https://github.com/ananta888/little-stt/actions/workflows/ci.yml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
+
+Kleine lokale Transkriptions-App: Angular 21 im Frontend, Python/FastAPI mit
+faster-whisper im Backend, Vosk als WebAssembly-Worker im Browser. Keine Datenbank,
+keine Benutzerkonten, keine Cloud-Transkriptions-API.
+
+Der [Umsetzungsplan für die Lernschleife](docs/LERNPLAN.md) beschreibt den geplanten
+Ausbau: geprüfte Whisper-Transkripte sammeln, Vosk anpassen, Qualität vergleichen
+und Modellversionen im Browser wechseln. Diese Lernfunktionen sind noch nicht
+implementiert.
+
+## Starten
+
+Voraussetzungen: Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), Node.js 22 ≥ 22.12
+oder Node.js 24. Ein System-FFmpeg ist nicht erforderlich; PyAV bringt die Decoder mit.
+
+Repository klonen und Abhängigkeiten installieren:
+
+```bash
+git clone https://github.com/ananta888/little-stt.git
+cd little-stt
+uv sync
+python3 scripts/download_vosk.py
+cp .env.example .env
+cd frontend
+npm ci
+```
+
+Terminal 1, im Projektverzeichnis:
+
+```bash
+uv run uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Terminal 2:
+
+```bash
+cd frontend
+npm start
+```
+
+Öffnen: **http://localhost:4200**. API-Dokumentation: http://127.0.0.1:8000/docs.
+
+Datei wählen, Sprache festlegen, **Transkribieren** klicken. Für Deutsch laufen Vosk
+und Whisper parallel. Die Vosk-Vorschau erscheint während der Verarbeitung, das
+Whisper-Ergebnis wird zum bearbeitbaren finalen Text. Ohne Whisper-Ergebnis bleibt
+die Vosk-Vorschau verfügbar. Originale und Fehler bleiben getrennt sichtbar.
+
+Unter **Vergleich** stehen beide Texte, unter **Wörter & Konfidenz** die Modellwerte.
+TXT exportiert den bearbeiteten Text; JSON enthält zusätzlich Originaltexte,
+Zeitstempel, Wortwerte, Segmentmetriken und die Herkunft des finalen Texts.
+
+## Modelle und Formate
+
+- Vosk: offizielles `vosk-model-small-de-0.15` (ca. 45 MB Download, Apache 2.0).
+  Das Skript packt es als `frontend/public/models/vosk-de.tar.gz` für vosk-browser.
+  Das Modell wird vom eigenen Server geladen und im Browser per IndexedDB gecacht.
+  Englisch/automatische Spracherkennung verwenden in dieser kleinen Version nur Whisper.
+- Whisper: standardmäßig `base`, CPU/int8. Beim ersten Aufruf lädt faster-whisper
+  das Modell von Hugging Face in den lokalen Cache; dafür ist Internet nötig.
+  `WHISPER_MODEL=small` erhöht typischerweise Genauigkeit und Rechenbedarf.
+  Ein lokaler Modellpfad ist ebenfalls möglich. `.env` ändern, Backend neu starten.
+- OGG/Opus, MP3, WAV, M4A/AAC, FLAC, WebM und weitere von PyAV unterstützte Formate.
+  Der Browser dekodiert für Vosk selbst, mischt auf Mono und resampelt auf 16 kHz.
+  Falls der Browser das Format nicht versteht, konvertiert `/api/audio/wav` es im
+  Backend. Enthält die Datei mehrere Audiospuren, wird im Backend die erste verwendet.
+- Grenzen: 100 MB und 15 Minuten pro Datei, ein gleichzeitiger Whisper-Auftrag.
+  Die Browser-Dekodierung hält die Aufnahme im RAM; für lange Dateien auf schwachen
+  Geräten die Vosk-Vorschau abschalten. Das Backend prüft die Dauer beim Dekodieren.
+
+## Optional: beide Texte mit einem LLM zusammenführen
+
+Ein laufendes [Ollama](https://docs.ollama.com/) mit einem bereits installierten,
+für Deutsch geeigneten Chat-Modell genügt. In `.env` setzen:
+
+```dotenv
+OLLAMA_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=dein-installierter-modellname
+```
+
+Backend neu starten und Seite neu laden. Sobald beide Transkripte erfolgreich
+vorliegen, wird **Mit LLM zusammenführen** verfügbar. Es sendet die beiden
+Originaltexte an Ollama, nutzt Whisper als Basis und fordert konservative Korrekturen
+sowie Markierung ungelöster Widersprüche an. Die gemeinsame Fassung ersetzt den
+bearbeitbaren Text; die Originale bleiben erhalten. Bei einem LLM-Fehler bleibt der
+bisherige Text bestehen. Das LLM hört kein Audio und kann Fehler hinzufügen;
+deshalb ist sein Ergebnis als prüfbedürftig gekennzeichnet. Keine automatische
+Wortfusion anhand der Scores, keine erfundenen LLM-Konfidenzwerte.
+
+## Was die Werte bedeuten
+
+Vosk liefert `conf`, Wortanfang und Wortende. Whisper liefert pro Wort `probability`
+und Zeitstempel, pro Segment `avg_logprob`, `no_speech_prob`, `compression_ratio`
+und `temperature`, außerdem erkannte Sprache und `language_probability`.
+Diese Werte sind Modellindikatoren, keine kalibrierten Wahrscheinlichkeiten für
+inhaltliche Richtigkeit. Die Werte der beiden Erkenner dürfen nicht direkt
+gegeneinander aufgerechnet werden. Die orange Markierung bei Whisper-Werten unter
+0,70 ist nur eine einfache Hilfe zum Nachhören.
+
+## Prüfen und als eine Anwendung starten
+
+```bash
+uv run pytest
+cd frontend
+npm run build
+cd ..
+uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Nach dem Build liefert FastAPI auch das Frontend auf **http://127.0.0.1:8000** aus.
+Vosk-Modell vor dem Build herunterladen, damit es mitkopiert wird. Falls das Backend
+bereits läuft, nach dem Build neu starten. Für Tests werden Whisper-Inferenz und
+Ollama gemockt; die Audio-Dekodierung wird tatsächlich ausgeführt.
+
+Für die lokale Nutzung durch eine Person gedacht, ohne Authentifizierung. Keine
+Aufnahme- oder Transkript-Historie: Beim Neuladen geht der Text verloren. Dateien
+werden für den Upload temporär gepuffert und danach geschlossen; keine dauerhafte
+Ablage durch die Anwendung. Browser-Modelle und Whisper-Modellcache bleiben bestehen.
+
+## Mitwirken und Lizenz
+
+Hinweise für Beiträge und Tests stehen in [CONTRIBUTING.md](CONTRIBUTING.md).
+Die GitHub Actions prüfen Backend-Tests und den Angular-Build; Modellinferenz und
+Training sind keine Bestandteile dieser CI-Prüfung.
+
+Der eigene Quellcode und die Projektdokumentation stehen unter der
+[BSD-3-Clause-Lizenz](LICENSE). Abhängigkeiten und heruntergeladene Modelle
+behalten ihre jeweiligen Lizenzen. Insbesondere werden die Vosk-Modellgewichte
+nicht durch die Projektlizenz neu lizenziert. Modellarchive, Aufnahmen,
+Transkripte und lokale Konfiguration werden nicht im Repository mitgeliefert.
+
+## Technische Quellen
+
+- [vosk-browser: API und Modellformat](https://github.com/ccoreilly/vosk-browser/tree/master/lib)
+- [Offizielle Vosk-Modelle und Lizenzen](https://alphacephei.com/vosk/models)
+- [faster-whisper: Installation und Inferenz](https://github.com/SYSTRAN/faster-whisper)
+- [Whisper-Datenfelder](https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py)
+- [Ollama Chat-API](https://docs.ollama.com/api/chat)
+- [Angular-Kompatibilität](https://angular.dev/reference/versions)

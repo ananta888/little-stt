@@ -1,0 +1,27 @@
+[project]
+name = "little-stt"
+version = "0.1.0"
+description = "Vosk im Browser, Whisper im Backend"
+readme = "README.md"
+license = "BSD-3-Clause"
+authors = [{ name = "Peter Stuiber" }]
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "python-multipart>=0.0.20,<1",
+  "faster-whisper>=1.2,<2",
+  "httpx>=0.28,<1",
+  "python-dotenv>=1,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[project.urls]
+Repository = "https://github.com/ananta888/little-stt"
+Issues = "https://github.com/ananta888/little-stt/issues"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

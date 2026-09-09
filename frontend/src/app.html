@@ -1,0 +1,81 @@
+<header class="topbar">
+  <a class="brand" href="/" aria-label="little stt Startseite"><span class="brand-icon">≋</span> little<span class="brand-light">stt</span><span class="version">LOCAL / 01</span></a>
+  <span class="connection"><span class="dot" [class.offline]="backend().includes('nicht erreichbar')"></span>{{ backend() }}</span>
+</header>
+
+<main>
+  <div class="eyebrow">DEIN AUDIO. DEINE WORTE.</div>
+  <h1>Aus Zuhören wird <span>Text.</span></h1>
+  <p class="intro">Eine Aufnahme, zwei Perspektiven. Vosk liefert die Vorschau,<br class="desktop"> Whisper übernimmt die Details. Du behältst das letzte Wort.</p>
+
+  <section class="upload-card" aria-labelledby="upload-title">
+    <div class="section-top"><h2 id="upload-title"><span class="step">01</span> Aufnahme hinzufügen</h2><span class="muted small">Bis 100 MB · 15 Minuten</span></div>
+    <div class="dropzone" (dragover)="$event.preventDefault()" (drop)="drop($event)">
+      <span class="upload-icon" aria-hidden="true">↑</span>
+      @if (file(); as selected) {
+        <strong class="filename">{{ selected.name }}</strong>
+        <span class="muted small">{{ selected.size / 1024 / 1024 | number:'1.1-1' }} MB · bereit zur Transkription</span>
+      } @else {
+        <strong>Zieh deine Aufnahme hierher</strong>
+        <span class="muted small">OGG, MP3, WAV, M4A, FLAC, WebM und weitere Audioformate</span>
+      }
+      <label class="file-button" [class.disabled]="busy() || merging()">{{ file() ? 'Andere Datei wählen' : 'Datei auswählen' }}<input type="file" aria-label="Audiodatei auswählen" [disabled]="busy() || merging()" (change)="select($event)"></label>
+    </div>
+    @if (audioUrl()) { <audio controls [src]="audioUrl()" aria-label="Aufnahme anhören"></audio> }
+    <div class="settings">
+      <label class="language-label">Sprache <select [(ngModel)]="language" [disabled]="busy() || merging()"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="auto">Automatisch erkennen</option></select></label>
+      <label class="toggle"><input type="checkbox" [(ngModel)]="useVosk" [disabled]="busy() || merging() || language !== 'de'"> Vosk-Vorschau <span class="tag">DE</span></label>
+      <button class="primary" (click)="start()" [disabled]="!file() || busy() || merging()">{{ busy() ? 'Transkription läuft …' : 'Transkribieren' }} <span aria-hidden="true">↗</span></button>
+    </div>
+    <p class="privacy">Lokal verarbeitet. Für die Whisper-Analyse wird deine Aufnahme an dein Python-Backend übertragen.</p>
+  </section>
+
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+
+  <div class="engines" aria-live="polite">
+    <section class="engine"><div class="engine-heading"><span class="engine-symbol">v</span><h3>Vosk <span>Die schnelle Vorschau</span></h3><span class="tag">BROWSER</span></div><p>{{ voskStatus() }}</p>
+      @if (busy() && useVosk && language === 'de') { <progress [value]="voskProgress()" max="100" aria-label="Vosk Fortschritt"></progress> }
+      @if (voskError()) { <p class="error" role="alert">{{ voskError() }}</p> }
+      @if (busy() && voskText()) { <p class="live-preview">{{ voskText() }}</p> }
+    </section>
+    <section class="engine"><div class="engine-heading"><span class="engine-symbol whisper-symbol">w</span><h3>Whisper <span>Die genaue Analyse</span></h3><span class="tag">BACKEND</span></div><p>{{ whisperStatus() }}</p>
+      @if (whisperError()) { <p class="error" role="alert">{{ whisperError() }}</p> }
+    </section>
+  </div>
+
+  <section class="result-card" aria-labelledby="result-title">
+    <div class="section-top"><h2 id="result-title"><span class="step">02</span> Dein Transkript</h2><div class="exports"><button class="text-button" (click)="download()" [disabled]="!finalText()">↓ TXT</button><button class="text-button" (click)="download(true)" [disabled]="!whisper() && !voskText()">↓ JSON</button></div></div>
+    <div class="tabs" role="tablist" aria-label="Ergebnisansicht">
+      <button role="tab" id="tab-final" aria-controls="panel-final" [attr.aria-selected]="tab() === 'final'" [class.active]="tab() === 'final'" (click)="tab.set('final')">Finaler Text</button>
+      <button role="tab" id="tab-compare" aria-controls="panel-compare" [attr.aria-selected]="tab() === 'compare'" [class.active]="tab() === 'compare'" (click)="tab.set('compare')">Vergleich</button>
+      <button role="tab" id="tab-details" aria-controls="panel-details" [attr.aria-selected]="tab() === 'details'" [class.active]="tab() === 'details'" (click)="tab.set('details')">Wörter & Konfidenz</button>
+    </div>
+    @if (tab() === 'final') {
+      <div role="tabpanel" id="panel-final" aria-labelledby="tab-final">
+      @if (finalText() || whisper()) {
+        <div class="result-meta"><span class="tag">{{ finalSource() }}</span><span class="muted small">Direkt bearbeitbar</span></div>
+        <textarea aria-label="Finaler Transkripttext" [ngModel]="finalText()" (ngModelChange)="finalText.set($event); finalSource.set('Manuell bearbeitet')" [disabled]="busy() || merging()" placeholder="Keine Sprache erkannt."></textarea>
+      } @else {
+        <div class="empty"><span class="empty-lines" aria-hidden="true">≡</span><h3>Hier bekommen deine Worte Platz.</h3><p>{{ busy() ? 'Die Modelle arbeiten an deiner Aufnahme. Die Vosk-Vorschau erscheint oben.' : 'Wähle eine Aufnahme und starte die Transkription.' }}</p></div>
+      }
+      </div>
+    }
+    @if (tab() === 'compare') {
+      <div class="comparison" role="tabpanel" id="panel-compare" aria-labelledby="tab-compare"><div><h3>Vosk <span class="tag">VORSCHAU</span></h3><p>{{ voskText() || 'Noch keine Vorschau vorhanden.' }}</p></div><div><h3>Whisper <span class="tag">ORIGINAL</span></h3><p>{{ whisper()?.text || 'Noch kein Transkript vorhanden.' }}</p></div></div>
+    }
+    @if (tab() === 'details') {
+      <div class="details" role="tabpanel" id="panel-details" aria-labelledby="tab-details">
+        <p class="confidence-note">Konfidenz ist ein Modellhinweis, keine garantierte Trefferquote. Vosk- und Whisper-Werte sind nicht direkt vergleichbar. Orange markiert Whisper-Wörter mit einem Wert unter 0,70.</p>
+        @if (whisper(); as result) {
+          <p class="muted small">Sprache: {{ result.language }} · Sprachwahrscheinlichkeit: {{ result.language_probability | number:'1.3-3' }} · Dauer: {{ time(result.duration) }}</p>
+          @for (segment of result.segments; track $index) {
+            <div class="segment"><span class="timestamp">{{ time(segment.start) }}–{{ time(segment.end) }}</span><div class="segment-content"><p class="words">@for (word of segment.words; track $index) { <span tabindex="0" [class.uncertain]="word.probability < 0.7" [title]="word.word + ' · probability ' + word.probability.toFixed(3) + ' · ' + time(word.start) + '–' + time(word.end)">{{ word.word }}<small>{{ word.probability | number:'1.2-2' }}</small></span> }</p><p class="metrics">avg_logprob {{ segment.avg_logprob | number:'1.3-3' }} · no_speech_prob {{ segment.no_speech_prob | number:'1.3-3' }} · compression_ratio {{ segment.compression_ratio | number:'1.2-2' }} · temperature {{ segment.temperature }}</p></div></div>
+          }
+        } @else { <p class="muted">Whisper-Details erscheinen nach der Transkription.</p> }
+        @if (voskWords().length) { <h3 class="vosk-details-title">Vosk-Wörter</h3><p class="words">@for (word of voskWords(); track $index) { <span tabindex="0" [title]="time(word.start) + '–' + time(word.end) + ' · conf ' + word.conf">{{ word.word }}<small>{{ word.conf | number:'1.2-2' }}</small></span> }</p> }
+      </div>
+    }
+    <div class="llm-footer"><div><strong>Eine gemeinsame Fassung</strong><p>{{ llmEnabled() ? 'Das LLM kombiniert beide Originaltexte. Bitte prüfe das Ergebnis; es ersetzt deine Bearbeitung.' : 'Optional: Ollama-Modell im Backend konfigurieren, um beide Texte zusammenzuführen.' }}</p></div><button class="secondary" (click)="merge()" [disabled]="!llmEnabled() || !whisper()?.text || !voskText() || !!voskError() || busy() || merging()">{{ merging() ? 'Wird zusammengeführt …' : 'Mit LLM zusammenführen' }} <span aria-hidden="true">✧</span></button></div>
+  </section>
+  <footer><span>little stt</span><span>Klein gehalten. Zum genauen Hinhören.</span></footer>
+</main>
