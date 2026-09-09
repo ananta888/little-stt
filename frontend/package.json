@@ -5,7 +5,8 @@
   "license": "BSD-3-Clause",
   "scripts": {
     "start": "ng serve --host 127.0.0.1 --proxy-config proxy.conf.json",
-    "build": "ng build"
+    "build": "ng build",
+    "test": "vitest run"
   },
   "dependencies": {
     "@angular/common": "^21.2.0",
@@ -20,6 +21,8 @@
   "devDependencies": {
     "@angular/build": "^21.2.0",
     "@angular/cli": "^21.2.0",
-    "typescript": "~5.9.3"
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.11"
   }
 }

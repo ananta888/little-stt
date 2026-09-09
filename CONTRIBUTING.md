@@ -20,10 +20,11 @@ uv sync --locked
 uv run pytest
 cd frontend
 npm ci
+npm test
 npm run build
 ```
 
-Die CI prüft Backend-Tests und Angular-Build ohne Modelldownload. Änderungen an
+Die CI prüft Backend- und Frontend-Tests sowie Angular-Build ohne Modelldownload. Änderungen an
 Erkennung, Audioverarbeitung oder Modellauslieferung zusätzlich mit einer lokalen
 Aufnahme und den echten Modellen prüfen; verwendetes Format und Ergebnis im
 Pull Request angeben.

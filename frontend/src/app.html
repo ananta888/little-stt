@@ -8,6 +8,9 @@
   <h1>Aus Zuhören wird <span>Text.</span></h1>
   <p class="intro">Eine Aufnahme, zwei Perspektiven. Vosk liefert die Vorschau,<br class="desktop"> Whisper übernimmt die Details. Du behältst das letzte Wort.</p>
 
+  <nav class="mode-switch" aria-label="Aufnahmeart"><button [class.selected]="mode() === 'file'" [attr.aria-pressed]="mode() === 'file'" (click)="mode.set('file')" [disabled]="liveActive()">Datei transkribieren</button><button [class.selected]="mode() === 'live'" [attr.aria-pressed]="mode() === 'live'" (click)="mode.set('live')" [disabled]="busy() || merging()">Live-Mikrofon</button></nav>
+  <app-live [hidden]="mode() !== 'live'" (activity)="liveActive.set($event)"></app-live>
+  <div [hidden]="mode() !== 'file'">
   <section class="upload-card" aria-labelledby="upload-title">
     <div class="section-top"><h2 id="upload-title"><span class="step">01</span> Aufnahme hinzufügen</h2><span class="muted small">Bis 100 MB · 15 Minuten</span></div>
     <div class="dropzone" (dragover)="$event.preventDefault()" (drop)="drop($event)">
@@ -77,5 +80,6 @@
     }
     <div class="llm-footer"><div><strong>Eine gemeinsame Fassung</strong><p>{{ llmEnabled() ? 'Das LLM kombiniert beide Originaltexte. Bitte prüfe das Ergebnis; es ersetzt deine Bearbeitung.' : 'Optional: Ollama-Modell im Backend konfigurieren, um beide Texte zusammenzuführen.' }}</p></div><button class="secondary" (click)="merge()" [disabled]="!llmEnabled() || !whisper()?.text || !voskText() || !!voskError() || busy() || merging()">{{ merging() ? 'Wird zusammengeführt …' : 'Mit LLM zusammenführen' }} <span aria-hidden="true">✧</span></button></div>
   </section>
+  </div>
   <footer><span>little stt</span><span>Klein gehalten. Zum genauen Hinhören.</span></footer>
 </main>

@@ -1,0 +1,72 @@
+<section class="upload-card live-controls" aria-labelledby="live-title">
+  <div class="section-top"><h2 id="live-title"><span class="step">01</span> Live aufnehmen</h2><span class="tag">MIKROFON</span></div>
+  <p class="intro-live">Vosk schreibt sofort mit. Whisper überarbeitet die Aufnahme regelmäßig im Hintergrund.</p>
+  <div class="settings">
+    <label class="language-label">Sprache <select [(ngModel)]="language" [disabled]="!!session() || recording()"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="auto">Automatisch</option></select></label>
+    <label class="language-label">Whisper alle <select [(ngModel)]="interval" [disabled]="!!session() || recording()"><option [ngValue]="300">5 Minuten</option><option [ngValue]="60">1 Minute</option></select></label>
+    <label class="toggle"><input type="checkbox" [(ngModel)]="useVosk" [disabled]="!!session() || language !== 'de'"> Vosk-Vorschau <span class="tag">DE</span></label>
+  </div>
+  <div class="record-row">
+    @if (!session()) {
+      <button class="primary" (click)="start()" [disabled]="!storageReady() || phase() === 'loading'">● Mikrofon starten</button>
+    } @else if (recording()) {
+      <button class="stop-button" (click)="stop()" [disabled]="phase() === 'stopping'">{{ phase() === 'stopping' ? 'Rest wird gesichert …' : '■ Aufnahme beenden' }}</button>
+    } @else {
+      <span class="tag">AUFNAHME BEENDET</span>
+      <button class="text-button" (click)="clear()" [disabled]="pendingRequest()">Sitzung löschen / neue Aufnahme</button>
+    }
+    <span class="clock" [class.on-air]="phase() === 'recording'">{{ time(session()?.duration ?? 0) }}</span>
+    <meter min="0" max="1" [value]="level()" aria-label="Mikrofonpegel"></meter>
+  </div>
+  @if (phase() === 'loading') { <p role="status">Gespeicherte Sitzung wird geprüft …</p> }
+  @if (phase() === 'preparing') { <p role="status">Mikrofonfreigabe und Vosk-Modell werden vorbereitet. Bitte erst nach dem Start des Zählers sprechen.</p> }
+  @if (phase() === 'recording') { <p class="status-line" role="status">Aufnahme läuft · {{ pending() }} Abschnitt(e) warten auf Whisper. Nächster Abschnitt nach {{ session()!.interval / 60 }} Minuten plus 5 Sekunden Kontext.</p> }
+  <p class="privacy">Audio und Texte der Live-Sitzung werden in diesem Browser gespeichert. Audioabschnitte gehen zur Analyse an dein Python-Backend. Tab geöffnet lassen; der aktuelle Aufnahmeabschnitt ist erst nach Abschluss gesichert.</p>
+</section>
+@if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+@if (warning()) { <p class="notice" role="status">{{ warning() }}</p> }
+
+@if (session(); as current) {
+  <section class="result-card live-results" aria-labelledby="live-result-title">
+    <div class="section-top"><h2 id="live-result-title"><span class="step">02</span> Live-Transkript</h2><div class="exports"><button class="text-button" (click)="export(false)">↓ TXT</button><button class="text-button" (click)="export(true)">↓ JSON</button></div></div>
+    <div class="queue-bar"><span>{{ chunks().length - pending() }} / {{ chunks().length }} mit Whisper nachbearbeitet</span><div>
+      <button class="text-button" (click)="paused.set(!paused())">{{ paused() ? 'Verarbeitung fortsetzen' : 'Verarbeitung pausieren' }}</button>
+      <button class="text-button" (click)="retry()" [disabled]="!pending() || pendingRequest()">Jetzt erneut versuchen</button>
+    </div></div>
+    @if (paused()) { <p class="notice">Weitere Whisper-Aufträge sind pausiert. Ein bereits laufender Auftrag wird abgeschlossen; das Mikrofon läuft weiter.</p> }
+    @for (chunk of chunks(); track chunk.id) {
+      <article class="live-chunk">
+        <div class="chunk-heading"><strong>Abschnitt {{ chunk.sequence + 1 }}</strong><span class="timestamp">{{ time(chunk.coreStart / 16000) }}–{{ time(chunk.coreEnd / 16000) }}</span><span class="tag" [class.finished]="chunk.status === 'done'">{{ label(chunk) }}</span></div>
+        @if (chunk.error) { <p class="error" role="status">{{ chunk.error }} @if (chunk.status === 'retry') { Automatische Wiederholung spätestens nach 60 Sekunden. }</p> }
+        @if (chunk.boundaryUncertain) { <p class="notice">Die Texte an einer Abschnittsgrenze stimmen nicht eindeutig überein. Bitte dort nachhören.</p> }
+        <div class="edit-label"><label [for]="'text-' + chunk.id">{{ chunk.draft !== undefined ? 'Deine Bearbeitung · vor automatischem Überschreiben geschützt' : chunk.result ? 'Whisper-Text · bearbeitbar' : 'Vosk-Vorschau · bearbeitbar' }}</label>
+          @if (chunk.draft !== undefined) { <button class="text-button" (click)="useSuggestion(chunk.id)">Modelltext übernehmen</button> }
+        </div>
+        <textarea [id]="'text-' + chunk.id" [ngModel]="textFor(chunk)" (ngModelChange)="edit(chunk.id, $event)" placeholder="Bisher keine Sprache erkannt."></textarea>
+        <details (toggle)="toggleDetails(chunk.id, $event)"><summary>Originale, Zeitstempel und Modellwerte</summary>
+          @if (expanded().has(chunk.id)) {
+          <p><strong>Vosk:</strong> {{ chunk.preview || 'Keine Vorschau vorhanden.' }}</p>
+          <p class="words">@for (word of voskWords(chunk); track $index) { <span tabindex="0" [title]="time(word.start) + '–' + time(word.end) + ' · conf ' + word.conf">{{ word.word }} <small>{{ word.conf | number:'1.2-2' }}</small></span> }</p>
+          <p><strong>Whisper (mit Kontext):</strong> {{ chunk.result?.text || 'Noch nicht verarbeitet.' }}</p>
+          @if (chunk.draft !== undefined && chunk.result) { <p><strong>Aktueller Whisper-Vorschlag:</strong> {{ chunk.suggestion }}</p> }
+          @if (chunk.result; as result) {
+            <p class="confidence-note">Modell: {{ result.model }} · Sprache: {{ result.language }} · Sprachwert: {{ result.language_probability | number:'1.3-3' }}. Konfidenzen sind Modellhinweise, keine garantierten Trefferquoten. Zeitstempel beziehen sich auf die ganze Sitzung.</p>
+            @for (segment of result.segments; track $index) {
+              <p class="metrics">{{ time(segment.start) }}–{{ time(segment.end) }} · avg_logprob {{ segment.avg_logprob | number:'1.3-3' }} · no_speech_prob {{ segment.no_speech_prob | number:'1.3-3' }} · compression_ratio {{ segment.compression_ratio | number:'1.2-2' }} · temperature {{ segment.temperature }}</p>
+              <p class="words">@for (word of segment.words; track $index) { <span tabindex="0" [class.uncertain]="word.probability < 0.7" [title]="time(word.start) + '–' + time(word.end)">{{ word.word }} <small>{{ word.probability | number:'1.2-2' }}</small></span> }</p>
+            }
+          }
+          <button class="text-button" (click)="audio(chunk)">↓ Audioabschnitt mit Kontext (WAV)</button>
+          }
+        </details>
+      </article>
+    }
+    @if (recording()) {
+      <article class="live-chunk preview-tail" aria-live="polite"><div class="chunk-heading"><strong>Gerade gesprochen</strong><span class="tag">LIVE-VORSCHAU</span></div><p>{{ liveTail() || (language === 'de' && useVosk ? 'Vosk wartet auf Sprache …' : 'Audio wird aufgenommen. Der Text erscheint nach der Whisper-Analyse.') }}</p></article>
+    }
+    @if (!recording() && liveTail()) {
+      <article class="live-chunk preview-tail"><div class="chunk-heading"><strong>Vorschau des unterbrochenen Rests</strong><span class="tag">UNVOLLSTÄNDIG</span></div><p>{{ liveTail() }}</p><p class="notice">Dieser Text wurde noch als Vorschau gespeichert. Das zugehörige Audiofenster wurde vor der Unterbrechung nicht abgeschlossen und kann nicht an Whisper gesendet werden.</p></article>
+    }
+    @if (!chunks().length && !recording()) { <div class="empty"><p>Keine Audioabschnitte vorhanden. Für eine neue Aufnahme die Sitzung löschen.</p></div> }
+  </section>
+}

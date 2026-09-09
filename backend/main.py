@@ -4,6 +4,9 @@ import logging
 import os
 import threading
 import wave
+import hashlib
+from collections import OrderedDict
+from uuid import UUID
 from pathlib import Path
 from typing import Literal
 
@@ -26,6 +29,9 @@ app = FastAPI(title="little stt")
 model = None
 inference_lock = threading.Lock()
 logger = logging.getLogger(__name__)
+live_cache: OrderedDict = OrderedDict()
+live_pending: dict = {}
+live_lock = threading.Lock()
 
 
 def decode_upload(file: UploadFile) -> np.ndarray:
@@ -71,7 +77,7 @@ def decode_upload(file: UploadFile) -> np.ndarray:
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "whisper_model": MODEL_NAME, "llm_enabled": bool(OLLAMA_MODEL)}
+    return {"status": "ok", "whisper_model": MODEL_NAME, "llm_enabled": bool(OLLAMA_MODEL), "live": True}
 
 
 @app.post("/api/audio/wav")
@@ -123,6 +129,75 @@ def transcribe(file: UploadFile = File(...), language: Literal["de", "en", "auto
         raise HTTPException(500, "Whisper konnte nicht transkribieren. Backend-Log und Modelldownload prüfen.") from exc
     finally:
         inference_lock.release()
+
+
+@app.post("/api/live/transcribe")
+def transcribe_live(
+    file: UploadFile = File(...),
+    session_id: UUID = Form(...), chunk_id: UUID = Form(...),
+    sequence: int = Form(..., ge=0),
+    window_start_sample: int = Form(..., ge=0),
+    core_start_sample: int = Form(..., ge=0),
+    core_end_sample: int = Form(..., gt=0),
+    language: Literal["de", "en", "auto"] = Form("de"),
+):
+    """Idempotent bounded live windows. Timestamps in the result are session-relative."""
+    try:
+        raw = file.file.read(10_000_045)
+        if len(raw) > 10_000_044:
+            raise HTTPException(413, "Live-Abschnitt ist zu groß.")
+        with wave.open(io.BytesIO(raw), "rb") as wav:
+            if (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) != (1, 2, 16000):
+                raise HTTPException(415, "Live-Audio muss PCM16-WAV, Mono, 16 kHz sein.")
+            samples = wav.getnframes()
+            if len(wav.readframes(samples)) != samples * 2:
+                raise HTTPException(400, "Live-Audio ist unvollständig.")
+        window_end = window_start_sample + samples
+        if not (window_start_sample <= core_start_sample < core_end_sample <= window_end
+                and core_end_sample - core_start_sample <= 300 * 16000
+                and core_start_sample - window_start_sample <= 5 * 16000
+                and window_end - core_end_sample <= 5 * 16000):
+            raise HTTPException(422, "Ungültige Zeitgrenzen für den Live-Abschnitt.")
+        identity = (str(session_id), sequence, window_start_sample, core_start_sample,
+                    core_end_sample, language, hashlib.sha256(raw).hexdigest())
+        key = str(chunk_id)
+        with live_lock:
+            cached = live_cache.get(key)
+            pending = live_pending.get(key)
+            if cached or pending:
+                previous = cached[0] if cached else pending
+                if previous != identity:
+                    raise HTTPException(409, "Abschnitts-ID wurde bereits für andere Daten verwendet.")
+                if cached:
+                    live_cache.move_to_end(key)
+                    return cached[1]
+                raise HTTPException(503, "Dieser Abschnitt wird bereits verarbeitet.", headers={"Retry-After": "5"})
+            live_pending[key] = identity
+        try:
+            file.file.seek(0)
+            result = transcribe(file, language)
+            offset = window_start_sample / 16000
+            for segment in result["segments"]:
+                segment["start"] += offset
+                segment["end"] += offset
+                for word in segment["words"]:
+                    word["start"] += offset
+                    word["end"] += offset
+            result.update(session_id=str(session_id), chunk_id=key, sequence=sequence,
+                          window_start=offset, core_start=core_start_sample / 16000,
+                          core_end=core_end_sample / 16000)
+            with live_lock:
+                live_cache[key] = (identity, result)
+                while len(live_cache) > 32:
+                    live_cache.popitem(last=False)
+            return result
+        finally:
+            with live_lock:
+                live_pending.pop(key, None)
+    except (wave.Error, EOFError) as exc:
+        raise HTTPException(415, "Ungültige Live-WAV-Datei.") from exc
+    finally:
+        file.file.close()
 
 
 class MergeRequest(BaseModel):

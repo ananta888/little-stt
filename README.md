@@ -53,6 +53,55 @@ Unter **Vergleich** stehen beide Texte, unter **Wörter & Konfidenz** die Modell
 TXT exportiert den bearbeiteten Text; JSON enthält zusätzlich Originaltexte,
 Zeitstempel, Wortwerte, Segmentmetriken und die Herkunft des finalen Texts.
 
+## Live-Transkription
+
+**Live-Mikrofon** öffnen, Sprache wählen und **Mikrofon starten** klicken.
+Den Mikrofonzugriff im Browser erlauben und erst sprechen, wenn der Aufnahmezähler
+läuft. Für Deutsch zeigt Vosk sofort eine Vorschau. Bei Englisch oder automatischer
+Spracherkennung entsteht der Text mit der anschließenden Whisper-Analyse.
+
+Whisper verarbeitet standardmäßig ungefähr alle **5 Minuten** einen neuen
+Audioabschnitt; alternativ ist **1 Minute** wählbar. Fünf zusätzliche Sekunden
+Kontext nach der Grenze helfen beim Übergang. Das Mikrofon läuft währenddessen
+weiter. Beim Beenden wird der verbleibende Abschnitt sofort eingereiht, auch
+wenn er kürzer als das gewählte Intervall ist.
+
+Jeder Abschnitt zeigt Vorschau bzw. Whisper-Ergebnis und lässt sich bearbeiten.
+**Manuelle Änderungen werden von späteren Ergebnissen nicht überschrieben.**
+Mit „Modelltext übernehmen“ kannst du bewusst zum aktuellen Vorschlag wechseln.
+Die Originale, Wortwerte und Zeitstempel bleiben unter den Abschnittsdetails
+verfügbar. Unklare Übergänge werden zum Nachhören markiert.
+
+Bei einem nicht erreichbaren oder belegten Backend wiederholt die Anwendung den
+Auftrag automatisch mit derselben Abschnitts-ID. Die Verarbeitung kann pausiert
+und manuell erneut angestoßen werden. TXT exportiert den aktuellen Text; JSON
+enthält zusätzlich Originalergebnisse, Abschnittsgrenzen und Bearbeitungen.
+Die WAV-Datei jedes abgeschlossenen Abschnitts kann separat heruntergeladen werden.
+
+Die aktuelle Live-Sitzung mit ihren **abgeschlossenen** Audioabschnitten und
+Bearbeitungen liegt lokal in IndexedDB. Nach einem Neuladen werden die Texte
+wiederhergestellt und ausstehende Aufträge fortgesetzt; das Mikrofon bleibt aus.
+Der gerade laufende, noch nicht abgeschlossene Audioabschnitt liegt im RAM und
+kann beim Schließen des Tabs verloren gehen. Deshalb die Aufnahme zuerst beenden.
+Browserdaten gehören zur jeweiligen Adresse: `localhost:4200` und
+`127.0.0.1:8000` haben unterschiedliche Sammlungen.
+
+Voraussetzungen: ein aktueller Browser mit AudioWorklet, Web Locks und
+Mikrofonzugriff, **localhost oder HTTPS**. Den Tab geöffnet und das Gerät wach
+halten; Hintergrundbetrieb und gesperrte Mobilgeräte können die Aufnahme
+unterbrechen. Solche Unterbrechungen beenden die Aufnahme mit einem Hinweis.
+Nur ein Tab darf dieselbe lokale Sitzung bearbeiten. Eine neue Aufnahme beginnt
+nach dem bewussten Löschen der bisherigen Sitzung; benötigte Ergebnisse vorher
+exportieren.
+
+Bei 12 ausstehenden Abschnitten oder etwa 512 MB aufgenommenen Abschnittsdateien
+wird die Aufnahme beendet und ihr Rest gesichert. Auch bei vollem Browserspeicher
+wird gestoppt; noch nicht gespeicherte WAVs können vor dem Schließen exportiert
+werden. Das Backend verarbeitet jeweils einen Whisper-Auftrag, daher kann bei
+langsamer Hardware ein Rückstand entstehen.
+
+Technische Details und Testumfang: [Live-Modus](docs/LIVE.md).
+
 ## Modelle und Formate
 
 - Vosk: offizielles `vosk-model-small-de-0.15` (ca. 45 MB Download, Apache 2.0).
@@ -115,16 +164,18 @@ Vosk-Modell vor dem Build herunterladen, damit es mitkopiert wird. Falls das Bac
 bereits läuft, nach dem Build neu starten. Für Tests werden Whisper-Inferenz und
 Ollama gemockt; die Audio-Dekodierung wird tatsächlich ausgeführt.
 
-Für die lokale Nutzung durch eine Person gedacht, ohne Authentifizierung. Keine
-Aufnahme- oder Transkript-Historie: Beim Neuladen geht der Text verloren. Dateien
-werden für den Upload temporär gepuffert und danach geschlossen; keine dauerhafte
-Ablage durch die Anwendung. Browser-Modelle und Whisper-Modellcache bleiben bestehen.
+Für die lokale Nutzung durch eine Person gedacht, ohne Authentifizierung.
+Datei-Uploads haben keine dauerhafte Aufnahme- oder Transkript-Historie: Beim
+Neuladen geht ihr Text verloren. Das Backend puffert Uploads temporär und schließt
+sie nach der Verarbeitung. Der Live-Modus speichert dagegen die aktuelle Sitzung
+im Browser, bis sie dort gelöscht wird. Browser-Modelle und Whisper-Modellcache
+bleiben ebenfalls bestehen.
 
 ## Mitwirken und Lizenz
 
 Hinweise für Beiträge und Tests stehen in [CONTRIBUTING.md](CONTRIBUTING.md).
-Die GitHub Actions prüfen Backend-Tests und den Angular-Build; Modellinferenz und
-Training sind keine Bestandteile dieser CI-Prüfung.
+Die GitHub Actions prüfen Backend- und Frontend-Tests sowie den Angular-Build;
+echte Modellinferenz und Training sind keine Bestandteile dieser CI-Prüfung.
 
 Der eigene Quellcode und die Projektdokumentation stehen unter der
 [BSD-3-Clause-Lizenz](LICENSE). Abhängigkeiten und heruntergeladene Modelle

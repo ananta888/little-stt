@@ -3,6 +3,11 @@
 Stand: 9. September 2026. Planungsdokument für das bestehende Projekt `little-stt`.
 Die hier beschriebenen Lernfunktionen sind noch nicht implementiert.
 
+Inzwischen existiert zusätzlich der [Live-Modus](LIVE.md): Mikrofonaufnahme,
+Vosk-Vorschau, periodische Whisper-Abschnitte und eine lokale Browser-Sitzung.
+Diese Browserablage ist noch kein geprüfter Trainingsbestand. Der hier geplante
+Backend-Datenspeicher und die Freigabe von Trainingsbeispielen bleiben erforderlich.
+
 **Ziel:** Die Anwendung sammelt auf Wunsch Audio mit überprüften Transkripten,
 erzeugt daraus angepasste Vosk-Modelle und weist deren Qualität vor dem Einsatz
 nach. Vosk erkennt weiterhin im Browser, Whisper läuft im Python-Backend.

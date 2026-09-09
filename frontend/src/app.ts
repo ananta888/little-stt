@@ -2,12 +2,15 @@ import { Component, OnDestroy, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { checked, Transcript, VoskWord } from './types';
+import { LiveComponent } from './live';
 
 @Component({
-  selector: 'app-root', standalone: true, imports: [FormsModule, DecimalPipe],
+  selector: 'app-root', standalone: true, imports: [FormsModule, DecimalPipe, LiveComponent],
   templateUrl: './app.html',
 })
 export class AppComponent implements OnDestroy {
+  mode = signal<'file' | 'live'>('file');
+  liveActive = signal(false);
   file = signal<File | null>(null);
   audioUrl = signal('');
   busy = signal(false);
