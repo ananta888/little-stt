@@ -4,8 +4,9 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
 Kleine lokale Transkriptions-App: Angular 21 im Frontend, Python/FastAPI mit
-faster-whisper im Backend, Vosk als WebAssembly-Worker im Browser. Keine Datenbank,
-keine Benutzerkonten, keine Cloud-Transkriptions-API.
+faster-whisper im Backend, Vosk als WebAssembly-Worker im Browser. Eine lokale Bibliothek in IndexedDB
+verwaltet Dateien und Live-Sitzungen. Keine Serverdatenbank, keine Benutzerkonten,
+keine Cloud-Transkriptions-API.
 
 Der [Umsetzungsplan für die Lernschleife](docs/LERNPLAN.md) beschreibt den geplanten
 Ausbau: geprüfte Whisper-Transkripte sammeln, Vosk anpassen, Qualität vergleichen
@@ -78,8 +79,8 @@ und manuell erneut angestoßen werden. TXT exportiert den aktuellen Text; JSON
 enthält zusätzlich Originalergebnisse, Abschnittsgrenzen und Bearbeitungen.
 Die WAV-Datei jedes abgeschlossenen Abschnitts kann separat heruntergeladen werden.
 
-Die aktuelle Live-Sitzung mit ihren **abgeschlossenen** Audioabschnitten und
-Bearbeitungen liegt lokal in IndexedDB. Nach einem Neuladen werden die Texte
+Live-Sitzungen mit ihren **abgeschlossenen** Audioabschnitten und
+Bearbeitungen liegen lokal in der Bibliothek in IndexedDB. Nach einem Neuladen werden die Texte
 wiederhergestellt und ausstehende Aufträge fortgesetzt; das Mikrofon bleibt aus.
 Der gerade laufende, noch nicht abgeschlossene Audioabschnitt liegt im RAM und
 kann beim Schließen des Tabs verloren gehen. Deshalb die Aufnahme zuerst beenden.
@@ -90,9 +91,10 @@ Voraussetzungen: ein aktueller Browser mit AudioWorklet, Web Locks und
 Mikrofonzugriff, **localhost oder HTTPS**. Den Tab geöffnet und das Gerät wach
 halten; Hintergrundbetrieb und gesperrte Mobilgeräte können die Aufnahme
 unterbrechen. Solche Unterbrechungen beenden die Aufnahme mit einem Hinweis.
-Nur ein Tab darf dieselbe lokale Sitzung bearbeiten. Eine neue Aufnahme beginnt
-nach dem bewussten Löschen der bisherigen Sitzung; benötigte Ergebnisse vorher
-exportieren.
+Nur ein Tab darf dieselbe lokale Bibliothek bearbeiten. **Neue Aufnahme · bisherige
+behalten** beginnt eine weitere Sitzung. Die vorherige bleibt in der Bibliothek.
+Ausstehende Aufträge einer abgelegten Sitzung werden beim erneuten Öffnen dieser
+Sitzung fortgesetzt; die Warteschlange arbeitet jeweils für die ausgewählte Sitzung.
 
 Bei 12 ausstehenden Abschnitten oder etwa 512 MB aufgenommenen Abschnittsdateien
 wird die Aufnahme beendet und ihr Rest gesichert. Auch bei vollem Browserspeicher
@@ -101,6 +103,43 @@ werden. Das Backend verarbeitet jeweils einen Whisper-Auftrag, daher kann bei
 langsamer Hardware ein Rückstand entstehen.
 
 Technische Details und Testumfang: [Live-Modus](docs/LIVE.md).
+
+## Transkripte, Ordner und Speicher verwalten
+
+Unter **Bibliothek** erscheinen Live-Sitzungen automatisch ab Aufnahmestart und
+Datei-Transkripte nach Abschluss der Verarbeitung. Auch eine vorhandene
+Vosk-Vorschau bei fehlgeschlagenem Whisper kann gespeichert und geprüft werden.
+Eine neue Datei oder Live-Aufnahme ersetzt keine bereits gespeicherten Transkripte.
+Bisherige Live-Daten werden beim ersten Start der neuen Version übernommen.
+
+- Ordner anlegen, umbenennen und entfernen. Beim Entfernen eines Ordners bleiben
+  seine Transkripte unter **Ohne Ordner** erhalten.
+- Titel ändern, Transkripte verschieben, nach Titel oder Text suchen und nach
+  Prüfstatus filtern. **Transkript öffnen / bearbeiten** führt zum passenden Editor;
+  Änderungen werden automatisch gespeichert.
+- **Freigabe** bestätigt deine Textprüfung. Standardmäßig löscht
+  **Freigeben & Audio löschen** die gespeicherten Originalaufnahmen nach einer
+  ausdrücklichen Bestätigung. Texte, Vosk-/Whisper-Ergebnisse, Zeitstempel und
+  manuelle Korrekturen bleiben erhalten.
+- **Audio behalten** bewahrt Aufnahmen auch nach der Freigabe auf. Bereits
+  freigegebene Transkripte beim Wechsel zurück zum Standard: Die Oberfläche
+  bestätigt die sofortige Audiolöschung gesondert. Eine spätere Textänderung hebt
+  die Freigabe auf, stellt gelöschtes Audio aber nicht wieder her.
+- Aufnahmen anhören oder einzeln herunterladen, nur Audio entfernen oder das
+  gesamte Transkript löschen. Eine Freigabe und das separate Entfernen von Audio
+  sind bei laufender Aufnahme, ausstehenden Whisper-Aufträgen oder ungesichertem
+  Aufnahmerest gesperrt. Das gesamte Transkript kann bewusst gelöscht werden.
+
+Die Speicheranzeige zählt gespeicherte Audio-Bytes insgesamt und je Transkript.
+Daneben steht die **geschätzte** Browserbelegung inklusive Texten und Modellcache
+sowie die Browserquote. Freigegebenes Audio wird aus der Anwendung entfernt;
+Quelldateien und zuvor heruntergeladene Kopien auf deinem Gerät bleiben bestehen.
+Die Bibliothek ist lokal pro Browserprofil und Adresse, kein geteiltes Archiv.
+**Dauerhaften Speicherschutz anfragen** bittet den Browser um Schutz vor automatischer
+Verdrängung. Wichtige Texte weiterhin als TXT/JSON exportieren; Browserdaten können
+manuell gelöscht werden. JSON enthält kein Audio und wird derzeit nicht importiert.
+
+Details zu Ablage, Löschregeln und Tests: [Bibliothek](docs/BIBLIOTHEK.md).
 
 ## Modelle und Formate
 
@@ -154,6 +193,7 @@ gegeneinander aufgerechnet werden. Die orange Markierung bei Whisper-Werten unte
 ```bash
 uv run pytest
 cd frontend
+npm test
 npm run build
 cd ..
 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
@@ -165,11 +205,10 @@ bereits läuft, nach dem Build neu starten. Für Tests werden Whisper-Inferenz u
 Ollama gemockt; die Audio-Dekodierung wird tatsächlich ausgeführt.
 
 Für die lokale Nutzung durch eine Person gedacht, ohne Authentifizierung.
-Datei-Uploads haben keine dauerhafte Aufnahme- oder Transkript-Historie: Beim
-Neuladen geht ihr Text verloren. Das Backend puffert Uploads temporär und schließt
-sie nach der Verarbeitung. Der Live-Modus speichert dagegen die aktuelle Sitzung
-im Browser, bis sie dort gelöscht wird. Browser-Modelle und Whisper-Modellcache
-bleiben ebenfalls bestehen.
+Das Backend puffert Uploads temporär und schließt sie nach der Verarbeitung.
+Die Bibliothek speichert Transkripte und aufbewahrte Originalaufnahmen im Browser.
+Freigaben und Löschregeln betreffen diese Browserkopien. Browser-Modelle und
+Whisper-Modellcache bleiben unabhängig davon bestehen.
 
 ## Mitwirken und Lizenz
 

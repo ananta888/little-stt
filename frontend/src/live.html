@@ -13,7 +13,7 @@
       <button class="stop-button" (click)="stop()" [disabled]="phase() === 'stopping'">{{ phase() === 'stopping' ? 'Rest wird gesichert …' : '■ Aufnahme beenden' }}</button>
     } @else {
       <span class="tag">AUFNAHME BEENDET</span>
-      <button class="text-button" (click)="clear()" [disabled]="pendingRequest()">Sitzung löschen / neue Aufnahme</button>
+      <button class="text-button" (click)="newSession()" [disabled]="pendingRequest() || opening()">Neue Aufnahme · bisherige behalten</button>
     }
     <span class="clock" [class.on-air]="phase() === 'recording'">{{ time(session()?.duration ?? 0) }}</span>
     <meter min="0" max="1" [value]="level()" aria-label="Mikrofonpegel"></meter>
@@ -21,9 +21,10 @@
   @if (phase() === 'loading') { <p role="status">Gespeicherte Sitzung wird geprüft …</p> }
   @if (phase() === 'preparing') { <p role="status">Mikrofonfreigabe und Vosk-Modell werden vorbereitet. Bitte erst nach dem Start des Zählers sprechen.</p> }
   @if (phase() === 'recording') { <p class="status-line" role="status">Aufnahme läuft · {{ pending() }} Abschnitt(e) warten auf Whisper. Nächster Abschnitt nach {{ session()!.interval / 60 }} Minuten plus 5 Sekunden Kontext.</p> }
-  <p class="privacy">Audio und Texte der Live-Sitzung werden in diesem Browser gespeichert. Audioabschnitte gehen zur Analyse an dein Python-Backend. Tab geöffnet lassen; der aktuelle Aufnahmeabschnitt ist erst nach Abschluss gesichert.</p>
+  <p class="privacy">Audio und Texte werden automatisch in deiner Bibliothek in diesem Browser gespeichert. Nach deiner Freigabe wird Audio standardmäßig gelöscht; in der Bibliothek kannst du es behalten. Audioabschnitte gehen zur Analyse an dein Python-Backend. Tab geöffnet lassen; der aktuelle Aufnahmeabschnitt ist erst nach Abschluss gesichert.</p>
 </section>
 @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+@if (saveFailed()) { <p class="notice">Du kannst in der Bibliothek Audio anderer abgeschlossener Transkripte löschen, um Platz freizugeben. <button class="secondary" (click)="retryStorage()" [disabled]="recording() || pendingRequest() || opening()">Lokales Speichern erneut versuchen</button></p> }
 @if (warning()) { <p class="notice" role="status">{{ warning() }}</p> }
 
 @if (session(); as current) {
@@ -42,7 +43,7 @@
         <div class="edit-label"><label [for]="'text-' + chunk.id">{{ chunk.draft !== undefined ? 'Deine Bearbeitung · vor automatischem Überschreiben geschützt' : chunk.result ? 'Whisper-Text · bearbeitbar' : 'Vosk-Vorschau · bearbeitbar' }}</label>
           @if (chunk.draft !== undefined) { <button class="text-button" (click)="useSuggestion(chunk.id)">Modelltext übernehmen</button> }
         </div>
-        <textarea [id]="'text-' + chunk.id" [ngModel]="textFor(chunk)" (ngModelChange)="edit(chunk.id, $event)" placeholder="Bisher keine Sprache erkannt."></textarea>
+        <textarea [id]="'text-' + chunk.id" [disabled]="opening()" [ngModel]="textFor(chunk)" (ngModelChange)="edit(chunk.id, $event)" placeholder="Bisher keine Sprache erkannt."></textarea>
         <details (toggle)="toggleDetails(chunk.id, $event)"><summary>Originale, Zeitstempel und Modellwerte</summary>
           @if (expanded().has(chunk.id)) {
           <p><strong>Vosk:</strong> {{ chunk.preview || 'Keine Vorschau vorhanden.' }}</p>
@@ -56,7 +57,7 @@
               <p class="words">@for (word of segment.words; track $index) { <span tabindex="0" [class.uncertain]="word.probability < 0.7" [title]="time(word.start) + '–' + time(word.end)">{{ word.word }} <small>{{ word.probability | number:'1.2-2' }}</small></span> }</p>
             }
           }
-          <button class="text-button" (click)="audio(chunk)">↓ Audioabschnitt mit Kontext (WAV)</button>
+          @if (audioIds().has(chunk.id)) { <button class="text-button" (click)="audio(chunk)">↓ Audioabschnitt mit Kontext (WAV)</button> } @else { <p class="muted">Audio nicht mehr gespeichert.</p> }
           }
         </details>
       </article>
@@ -67,6 +68,6 @@
     @if (!recording() && liveTail()) {
       <article class="live-chunk preview-tail"><div class="chunk-heading"><strong>Vorschau des unterbrochenen Rests</strong><span class="tag">UNVOLLSTÄNDIG</span></div><p>{{ liveTail() }}</p><p class="notice">Dieser Text wurde noch als Vorschau gespeichert. Das zugehörige Audiofenster wurde vor der Unterbrechung nicht abgeschlossen und kann nicht an Whisper gesendet werden.</p></article>
     }
-    @if (!chunks().length && !recording()) { <div class="empty"><p>Keine Audioabschnitte vorhanden. Für eine neue Aufnahme die Sitzung löschen.</p></div> }
+    @if (!chunks().length && !recording()) { <div class="empty"><p>Keine Audioabschnitte vorhanden. Du kannst eine neue Aufnahme beginnen; diese Sitzung bleibt in der Bibliothek.</p></div> }
   </section>
 }

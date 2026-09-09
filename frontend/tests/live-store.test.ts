@@ -5,6 +5,7 @@ import type { LiveChunk } from '../src/live-core';
 
 it('restores pending audio and preserves editable metadata independently of the WAV', async () => {
   const store = new LiveStore(); await store.open(); await store.clear();
+  await store.saveSession({id: 's', created: new Date().toISOString(), language: 'de', interval: 300, duration: 1, preview: '', partial: '', words: [], state: 'stopped', warning: ''});
   const chunk: LiveChunk = {id: 'one', sessionId: 's', sequence: 0, windowStart: 0, coreStart: 0, coreEnd: 16000,
     status: 'retry', attempts: 2, retryAt: 0, error: 'offline', preview: 'hallo', suggestion: '', boundaryUncertain: false};
   await store.add(chunk, new Blob(['audio']));

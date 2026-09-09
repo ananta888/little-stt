@@ -1,0 +1,54 @@
+<section class="library" aria-labelledby="library-title">
+  <div class="section-top"><div><h2 id="library-title">Deine Transkripte</h2><p class="muted small">Live-Sitzungen und Dateien · in diesem Browser gespeichert</p></div><button class="secondary" (click)="refresh()" [disabled]="!enabled() || busy()">Aktualisieren</button></div>
+  @if (!enabled()) { <p class="error" role="alert">Die lokale Bibliothek ist noch nicht verfügbar. Bitte Hinweise im Live-Modus prüfen und andere little-stt-Tabs schließen.</p> }
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (notice()) { <p class="notice" role="status">{{ notice() }}</p> }
+  <div class="storage-card">
+    <div><span class="storage-label">Gespeichertes Audio</span><strong>{{ bytes(audioBytes()) }}</strong><span class="small muted">{{ data().documents.length }} Transkript(e) · {{ data().audio.length }} Aufnahmeabschnitt(e)</span></div>
+    <div class="quota"><span class="storage-label">Browserbedarf inkl. Texte und Modellcache · geschätzt</span>
+      @if (estimate(); as usage) {
+        <span>{{ bytes(usage.usage ?? 0) }} / {{ bytes(usage.quota ?? 0) }}</span>
+        @if (usage.quota) { <meter min="0" [max]="usage.quota" [value]="usage.usage ?? 0" aria-label="Geschätzter Browserspeicher"></meter> }
+      } @else { <span class="muted">Keine Schätzung verfügbar</span> }
+      <button class="text-button" (click)="persist()" [disabled]="persistent() === true">{{ persistent() === true ? 'Speicherschutz aktiv' : 'Dauerhaften Speicherschutz anfragen' }}</button>
+    </div>
+  </div>
+  <p class="privacy">Freigabe bedeutet: von dir geprüft. Danach wird Audio standardmäßig gelöscht. „Audio behalten“ speichert es weiter. Gelöscht werden nur Kopien in dieser Anwendung, keine Quelldateien auf deinem Gerät. Browserdaten sind kein Backup; wichtige Texte als JSON oder TXT exportieren.</p>
+  @if (locked()) { <p class="notice">Aufnahme, Verarbeitung oder Speichern läuft. Die Bibliothek bleibt sichtbar; Änderungen sind kurzzeitig gesperrt.</p> }
+  <div class="library-layout">
+    <aside aria-label="Ordner">
+      <button class="folder" [class.selected]="folder() === 'all'" (click)="chooseFolder('all')">Alle Transkripte <span>{{ data().documents.length }}</span></button>
+      <button class="folder" [class.selected]="folder() === 'none'" (click)="chooseFolder('none')">Ohne Ordner <span>{{ count(null) }}</span></button>
+      @for (item of folders(); track item.id) { <button class="folder" [class.selected]="folder() === item.id" (click)="chooseFolder(item.id)"><span class="folder-name">▱ {{ item.name }}</span><span>{{ count(item.id) }}</span></button> }
+      <form class="folder-form" (ngSubmit)="addFolder()"><label for="new-folder">Neuer Ordner</label><input id="new-folder" [(ngModel)]="newFolder" name="newFolder" maxlength="80" placeholder="z. B. Besprechungen" [disabled]="locked() || busy() || !enabled()"><button class="secondary" [disabled]="!newFolder.trim() || locked() || busy() || !enabled()">Ordner anlegen</button></form>
+      @if (folder() !== 'all' && folder() !== 'none') {
+        <form class="folder-form" (ngSubmit)="renameFolder()"><label for="folder-name">Ordner umbenennen</label><input id="folder-name" [(ngModel)]="folderName" name="folderName" maxlength="80" [disabled]="locked() || busy()"><button class="secondary" [disabled]="locked() || busy() || !folderName.trim()">Umbenennen</button><button type="button" class="text-button danger" (click)="removeFolder()" [disabled]="locked() || busy()">Ordner entfernen</button></form>
+      }
+    </aside>
+    <div class="library-content">
+      <div class="library-filters"><label>Suche<input type="search" placeholder="Titel oder Text suchen" [ngModel]="search()" (ngModelChange)="search.set($event)"></label><label>Prüfstatus<select [ngModel]="status()" (ngModelChange)="status.set($event)"><option value="all">Alle</option><option value="review">Noch nicht freigegeben</option><option value="approved">Freigegeben</option><option value="pending">Verarbeitung / unvollständig</option></select></label></div>
+      <div class="document-list" aria-label="Gespeicherte Transkripte">
+        @for (doc of documents(); track doc.id) {
+          <button class="document-row" [class.selected]="selectedId() === doc.id" (click)="choose(doc)"><span class="document-top"><strong>{{ doc.title }}</strong><span class="tag">{{ doc.kind === 'live' ? 'LIVE' : 'DATEI' }}</span></span><span class="document-meta">{{ doc.created | date:'dd.MM.yyyy HH:mm' }} · {{ folderLabel(doc) }} · {{ doc.approvedAt ? 'Freigegeben' : blocker(doc) ? 'Verarbeitung / unvollständig' : 'Zur Prüfung' }}</span><span class="excerpt">{{ text(doc).slice(0, 160) || 'Noch kein Text vorhanden.' }}</span><span class="audio-size">Audio {{ bytes(size(doc.id)) }}</span></button>
+        } @empty { <div class="empty"><h3>Noch keine passenden Transkripte.</h3><p>Live-Aufnahmen und abgeschlossene Datei-Transkriptionen erscheinen hier automatisch.</p></div> }
+      </div>
+      @if (selected(); as doc) {
+        <section class="document-detail" aria-label="Transkript verwalten">
+          <form class="title-form" (ngSubmit)="rename(doc)"><label for="document-title">Titel<input id="document-title" [(ngModel)]="title" name="title" maxlength="200" [disabled]="locked() || busy()"></label><button class="secondary" [disabled]="locked() || busy() || !title.trim()">Titel speichern</button></form>
+          <div class="document-settings"><label>Ordner<select [value]="doc.folderId ?? ''" (change)="move(doc, $any($event.target).value || null); $any($event.target).value = doc.folderId ?? ''" [disabled]="locked() || busy()"><option value="">Ohne Ordner</option>@for (item of folders(); track item.id) { <option [value]="item.id">{{ item.name }}</option> }</select></label>
+            <label>Originalaufnahmen<select [value]="doc.retention" (change)="retention(doc, $any($event.target).value); $any($event.target).value = doc.retention" [disabled]="locked() || busy()"><option value="after-review">Nach Freigabe löschen (Standard)</option><option value="keep">Audio behalten</option></select></label></div>
+          @if (doc.approvedAt) { <p class="approved">Freigegeben am {{ doc.approvedAt | date:'dd.MM.yyyy HH:mm' }}. Textänderungen erfordern eine neue Freigabe.</p> }
+          @if (blocker(doc)) { <p class="notice">{{ blocker(doc) }} Bei ausstehenden Live-Aufträgen das Transkript öffnen, um die Verarbeitung fortzusetzen.</p> }
+          <pre class="transcript-preview">{{ text(doc) || 'Keine Sprache erkannt.' }}</pre>
+          <div class="document-actions"><button class="secondary" (click)="openDocument.emit(doc)" [disabled]="locked() || busy()">Transkript öffnen / bearbeiten</button><button class="text-button" (click)="export(doc)">↓ TXT</button><button class="text-button" (click)="export(doc, true)">↓ JSON</button><button class="primary" (click)="approve(doc)" [disabled]="locked() || busy() || !!blocker(doc) || !!doc.approvedAt">{{ doc.retention === 'keep' ? 'Freigeben · Audio behalten' : 'Freigeben & Audio löschen' }}</button></div>
+          <div class="audio-section"><h3>Originalaufnahmen · {{ bytes(size(doc.id)) }}</h3>
+            @for (item of audio(doc.id); track item.id) { <div class="audio-row"><span>{{ item.name }} · {{ bytes(item.bytes) }}</span><button class="text-button" (click)="play(item)" [disabled]="busy()">Anhören</button><button class="text-button" (click)="downloadAudio(item)" [disabled]="busy()">↓ Audio</button></div> }
+            @if (player(); as p) { <audio controls [src]="p.url" aria-label="Gespeicherte Originalaufnahme"></audio> }
+            @if (!size(doc.id)) { <p class="muted small">Kein Audio gespeichert. „Audio behalten“ kann bereits gelöschte Aufnahmen nicht wiederherstellen.</p> }
+          </div>
+          <div class="delete-actions"><button class="text-button danger" (click)="removeAudio(doc)" [disabled]="locked() || busy() || !!blocker(doc) || !size(doc.id)">Nur Audio endgültig löschen</button><button class="text-button danger" (click)="remove(doc)" [disabled]="locked() || busy()">Transkript und Audio löschen</button></div>
+        </section>
+      }
+    </div>
+  </div>
+</section>

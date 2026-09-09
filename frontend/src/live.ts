@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, computed, output, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { AudioWindow, encodeWav, INTERVAL, LiveChunk, LiveResult, LiveSessionData, RATE, stitch, textFor, WindowAssembler } from './live-core';
@@ -7,7 +7,12 @@ import { MicrophoneCapture } from './live-capture';
 
 @Component({selector: 'app-live', standalone: true, imports: [FormsModule, DecimalPipe], templateUrl: './live.html', styleUrl: './live.css'})
 export class LiveComponent implements OnInit, OnDestroy {
+  blocked = input(false);
   activity = output<boolean>();
+  ready = output<boolean>();
+  changed = output<void>();
+  opening = signal(false);
+  audioIds = signal<Set<string>>(new Set());
   session = signal<LiveSessionData | null>(null);
   chunks = signal<LiveChunk[]>([]);
   phase = signal<'loading' | 'ready' | 'preparing' | 'recording' | 'stopping'>('loading');
@@ -29,6 +34,7 @@ export class LiveComponent implements OnInit, OnDestroy {
   private saves = Promise.resolve();
   private volatileAudio = new Map<string, Blob>();
   private sending = false;
+  saveFailed = signal(false);
   private destroyed = false;
   private timer?: ReturnType<typeof setInterval>;
   private releaseLock?: () => void;
@@ -62,7 +68,8 @@ export class LiveComponent implements OnInit, OnDestroy {
           : saved.session.warning);
       }
       this.chunks.set(stitch(saved.chunks.map(c => ({...c, status: c.status === 'processing' ? 'queued' : c.status}))));
-      this.storageReady.set(true); this.phase.set('ready');
+      this.storageReady.set(true); this.ready.emit(true); this.phase.set('ready');
+      await this.refreshAudio();
       this.timer = setInterval(() => void this.pump(), 1000);
       window.addEventListener('beforeunload', this.unload); window.addEventListener('online', this.online);
       if (this.session()) this.persistSession();
@@ -71,7 +78,7 @@ export class LiveComponent implements OnInit, OnDestroy {
   }
 
   async start() {
-    if (!this.storageReady() || this.session() || this.recording()) return;
+    if (this.blocked() || !this.storageReady() || this.session() || this.recording()) return;
     this.error.set(''); this.warning.set('');
     const session: LiveSessionData = {id: crypto.randomUUID(), created: new Date().toISOString(), language: this.language,
       interval: Number(this.interval), duration: 0, preview: '', partial: '', words: [], state: 'recording', warning: '',
@@ -110,6 +117,7 @@ export class LiveComponent implements OnInit, OnDestroy {
     catch (error) { this.warning.set(this.message(error)); }
     for (const window of this.assembler?.finish() ?? []) this.enqueue(window);
     await this.capture.finishPreview();
+    this.capture.disposePreview(); this.capture = undefined; this.assembler = undefined;
     this.updatePreviews();
     this.session.update(s => s && {...s, state: 'stopped', partial: ''});
     this.persistSession(); this.persistChunks();
@@ -124,11 +132,11 @@ export class LiveComponent implements OnInit, OnDestroy {
       windowStart: window.windowStart, coreStart: window.coreStart, coreEnd: window.coreEnd,
       status: 'queued', attempts: 0, retryAt: 0, error: '', preview: '', suggestion: '', boundaryUncertain: false};
     const blob = encodeWav(window.pcm);
-    this.volatileAudio.set(chunk.id, blob); this.checkpointBytes += blob.size;
+    this.volatileAudio.set(chunk.id, blob); this.audioIds.update(ids => new Set([...ids, chunk.id])); this.checkpointBytes += blob.size;
     this.chunks.update(cs => [...cs, chunk]); this.updatePreviews();
     this.save(async () => {
       await this.store.add(this.chunks().find(c => c.id === chunk.id)!, blob);
-      this.volatileAudio.delete(chunk.id);
+      this.volatileAudio.delete(chunk.id); this.audioIds.update(ids => new Set([...ids, chunk.id]));
     });
     // Include the final partial window when stopping; never discard a captured window.
     if ((this.pending() >= 12 || this.checkpointBytes >= 512 * 1024 * 1024) && this.phase() === 'recording') {
@@ -142,7 +150,8 @@ export class LiveComponent implements OnInit, OnDestroy {
     this.chunks.update(cs => cs.map(c => ({...c, preview: words.filter(w => (w.start + w.end) / 2 >= c.coreStart / RATE && (w.start + w.end) / 2 < c.coreEnd / RATE).map(w => w.word).join(' ')})));
   }
   private save(work: () => Promise<void>) {
-    this.saves = this.saves.then(work).catch(error => {
+    this.saves = this.saves.then(work).then(() => { this.changed.emit(); }).catch(error => {
+      this.saveFailed.set(true);
       this.error.set(`Lokales Speichern fehlgeschlagen: ${this.message(error)} Bitte Texte/Audio vor dem Schließen exportieren.`);
       if (this.phase() === 'recording' || this.phase() === 'preparing') void this.stop();
     });
@@ -151,7 +160,7 @@ export class LiveComponent implements OnInit, OnDestroy {
   private persistChunks() { const chunks = this.chunks(); this.save(() => this.store.saveChunks(chunks)); }
 
   private async pump() {
-    if (this.sending || this.paused() || !this.storageReady() || this.destroyed) return;
+    if (this.blocked() || this.opening() || this.sending || this.paused() || !this.storageReady() || this.destroyed) return;
     // Strict FIFO: a failed earlier block is visible and must be retried before later blocks.
     const first = this.chunks().find(c => c.status !== 'done');
     if (!first || first.status === 'failed' || first.retryAt > Date.now()) return;
@@ -196,23 +205,63 @@ export class LiveComponent implements OnInit, OnDestroy {
     }
   }
   private patch(id: string, patch: Partial<LiveChunk>) { this.chunks.update(cs => cs.map(c => c.id === id ? {...c, ...patch} : c)); }
-  edit(id: string, text: string) { this.patch(id, {draft: text}); this.persistChunks(); }
-  useSuggestion(id: string) { this.patch(id, {draft: undefined}); this.persistChunks(); }
+  edit(id: string, text: string) { if (this.opening()) return; this.patch(id, {draft: text}); this.persistChunks(); }
+  useSuggestion(id: string) { if (this.opening()) return; this.patch(id, {draft: undefined}); this.persistChunks(); }
   retry() {
     this.paused.set(false);
     this.chunks.update(cs => cs.map(c => ['retry', 'failed'].includes(c.status) ? {...c, status: 'queued', retryAt: 0, error: ''} : c));
     this.persistChunks(); void this.pump();
   }
-  async clear() {
-    if (this.recording() || this.pendingRequest()) return;
-    if (!window.confirm('Diese lokale Sitzung mit Audio und Texten löschen? Bitte benötigte Ergebnisse vorher exportieren.')) return;
-    this.paused.set(true); await this.saves;
+  async waitForSaves() { await this.saves; }
+  async flush() { await this.saves; if (this.saveFailed()) throw new Error('Die Sitzung konnte nicht vollständig gespeichert werden. Texte und Audio bitte vor dem Wechsel exportieren.'); if (this.volatileAudio.size) throw new Error('Noch nicht gesichertes Audio zuerst herunterladen.'); }
+  async retryStorage() {
+    if (this.recording() || this.pendingRequest() || this.opening() || !this.session()) return;
+    this.opening.set(true); this.paused.set(true);
     try {
-      await this.store.clear(); this.session.set(null); this.chunks.set([]); this.volatileAudio.clear();
-      this.error.set(''); this.warning.set(''); this.stopTask = undefined; this.capture = undefined;
-      this.checkpointBytes = 0; this.lastPersisted = 0; this.expanded.set(new Set());
+      await this.saves;
+      await this.store.saveSession({...this.session()!, warning: this.warning()});
+      for (const [id, blob] of this.volatileAudio) {
+        const chunk = this.chunks().find(c => c.id === id);
+        if (chunk) await this.store.add(chunk, blob);
+        this.volatileAudio.delete(id);
+      }
+      await this.store.saveChunks(this.chunks()); this.saveFailed.set(false); this.error.set(''); this.changed.emit();
+    } catch (error) { this.saveFailed.set(true); this.error.set(`Lokales Speichern fehlgeschlagen: ${this.message(error)} Bitte Audio oder Texte exportieren.`); }
+    finally { this.opening.set(false); this.paused.set(false); void this.pump(); }
+  }
+  async refreshAudio() {
+    if (this.storageReady()) this.audioIds.set(new Set([...(await this.store.library()).audio.map(a => a.id), ...this.volatileAudio.keys()]));
+  }
+  async newSession() {
+    if (this.recording() || this.pendingRequest() || this.opening()) return;
+    this.opening.set(true); this.paused.set(true);
+    try {
+      await this.flush(); await this.store.detach(); this.resetSession(); this.changed.emit();
     } catch (error) { this.error.set(this.message(error)); }
-    this.paused.set(false);
+    finally { this.opening.set(false); this.paused.set(false); }
+  }
+  async openSession(id: string) {
+    if (this.recording() || this.pendingRequest() || this.opening()) return;
+    this.opening.set(true); this.paused.set(true);
+    try {
+      await this.flush();
+      const saved = await this.store.openSession(id);
+      this.resetSession();
+      this.session.set(saved.session ? {...saved.session, state: 'stopped'} : null);
+      this.chunks.set(stitch(saved.chunks.map(c => ({...c, status: c.status === 'processing' ? 'queued' : c.status}))));
+      if (saved.session) {
+        this.language = saved.session.language; this.interval = saved.session.interval;
+        this.useVosk = saved.session.voskEnabled ?? saved.session.language === 'de';
+        this.warning.set(saved.session.warning); this.persistSession();
+      }
+      await this.refreshAudio();
+    } catch (error) { this.error.set(this.message(error)); }
+    finally { this.opening.set(false); this.paused.set(false); void this.pump(); }
+  }
+  private resetSession() {
+    this.session.set(null); this.chunks.set([]); this.volatileAudio.clear();
+    this.error.set(''); this.warning.set(''); this.stopTask = undefined; this.capture = undefined;
+    this.checkpointBytes = 0; this.lastPersisted = 0; this.expanded.set(new Set()); this.audioIds.set(new Set());
   }
   async audio(chunk: LiveChunk) {
     try {

@@ -64,12 +64,16 @@ aufgerufen.
 
 ## Warteschlange und Wiederherstellung
 
-IndexedDB `little-stt-live` speichert genau eine aktuelle Sitzung. Metadaten,
+IndexedDB `little-stt-live` (Schema 2) speichert mehrere Sitzungen in der
+[Bibliothek](BIBLIOTHEK.md) und einen Zeiger auf die aktuelle Sitzung. Metadaten,
 Abschnittstexte und WAV-Blobs haben getrennte Stores. Die erstmalige Ablage eines
 Abschnitts und seines Audios erfolgt in einer gemeinsamen Transaktion. Nur
 abgeschlossene Audiofenster sind dauerhaft gespeichert; der gerade erfasste
 Abschnitt bleibt im RAM. Bei einem Neuladen wird auf diese mögliche Lücke
-hingewiesen. Eine Wiederherstellung aktiviert niemals automatisch das Mikrofon.
+hingewiesen. Eine Wiederherstellung aktiviert niemals automatisch das Mikrofon. Neue Aufnahmen
+lassen bisherige Sitzungen bestehen. Die Warteschlange verarbeitet nur die
+ausgewählte Sitzung; andere Rückstände bleiben gespeichert und laufen beim
+erneuten Öffnen über die Bibliothek weiter.
 
 Die Anwendung sendet höchstens einen Live-Auftrag gleichzeitig. Netzwerkfehler,
 HTTP 408/425/429 und Serverfehler werden nach 5, 10, 20, 40 und anschließend
@@ -90,8 +94,10 @@ Belegt-Status. Nach einem Backend-Neustart oder nach Cache-Verdrängung kann ein
 Abschnitt erneut berechnet werden; im Frontend ersetzt das Ergebnis weiterhin
 denselben Abschnitt und erzeugt keinen doppelten Textblock.
 
-Web Locks verhindert konkurrierende Bearbeitungen derselben Sitzung in mehreren
-Tabs. Mikrofonverlust, Stummschaltung oder ein suspendierter AudioContext beenden
+Web Locks verhindert konkurrierende Bearbeitungen derselben Bibliothek in mehreren
+Tabs. Während Aufnahme oder einer laufenden Anfrage bleiben Änderungen in der
+Bibliothek gesperrt. Bereits eingeplante Schreibvorgänge werden vor einer Freigabe
+oder Löschung abgewartet. Mikrofonverlust, Stummschaltung oder ein suspendierter AudioContext beenden
 die Aufnahme mit sichtbarer Meldung. Ein Ausfall oder mehr als ungefähr 30 Sekunden
 Vosk-Rückstand beendet dagegen nur die Vorschau; Audioaufnahme und Whisper laufen
 weiter. Der Adapter für das festgeschriebene `vosk-browser@0.0.8` beendet seinen

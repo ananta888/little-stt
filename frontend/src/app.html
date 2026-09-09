@@ -8,8 +8,10 @@
   <h1>Aus Zuhören wird <span>Text.</span></h1>
   <p class="intro">Eine Aufnahme, zwei Perspektiven. Vosk liefert die Vorschau,<br class="desktop"> Whisper übernimmt die Details. Du behältst das letzte Wort.</p>
 
-  <nav class="mode-switch" aria-label="Aufnahmeart"><button [class.selected]="mode() === 'file'" [attr.aria-pressed]="mode() === 'file'" (click)="mode.set('file')" [disabled]="liveActive()">Datei transkribieren</button><button [class.selected]="mode() === 'live'" [attr.aria-pressed]="mode() === 'live'" (click)="mode.set('live')" [disabled]="busy() || merging()">Live-Mikrofon</button></nav>
-  <app-live [hidden]="mode() !== 'live'" (activity)="liveActive.set($event)"></app-live>
+  <nav class="mode-switch" aria-label="Bereich"><button [class.selected]="mode() === 'file'" [attr.aria-pressed]="mode() === 'file'" (click)="mode.set('file')" [disabled]="liveActive() || libraryBusy()">Datei transkribieren</button><button [class.selected]="mode() === 'live'" [attr.aria-pressed]="mode() === 'live'" (click)="mode.set('live')" [disabled]="busy() || merging() || fileSaving() || libraryBusy()">Live-Mikrofon</button><button [class.selected]="mode() === 'library'" [attr.aria-pressed]="mode() === 'library'" (click)="mode.set('library'); libraryChanged()" [disabled]="busy() || merging() || fileSaving() || libraryBusy()">Bibliothek</button></nav>
+  <app-live [hidden]="mode() !== 'live'" [blocked]="libraryBusy()" (activity)="liveActive.set($event)" (ready)="libraryReady.set($event)" (changed)="libraryChanged()"></app-live>
+  @if (error() && mode() === 'library') { <p class="error" role="alert">{{ error() }}</p> }
+  <app-library [hidden]="mode() !== 'library'" [visible]="mode() === 'library'" [enabled]="libraryReady()" [revision]="libraryRevision()" [locked]="liveActive() || !!live()?.pendingRequest() || !!live()?.opening() || busy() || merging() || fileSaving()" [prepare]="prepareLibrary" (activity)="libraryBusy.set($event)" (openDocument)="openDocument($event)" (changed)="documentChanged($event)"></app-library>
   <div [hidden]="mode() !== 'file'">
   <section class="upload-card" aria-labelledby="upload-title">
     <div class="section-top"><h2 id="upload-title"><span class="step">01</span> Aufnahme hinzufügen</h2><span class="muted small">Bis 100 MB · 15 Minuten</span></div>
@@ -18,17 +20,19 @@
       @if (file(); as selected) {
         <strong class="filename">{{ selected.name }}</strong>
         <span class="muted small">{{ selected.size / 1024 / 1024 | number:'1.1-1' }} MB · bereit zur Transkription</span>
+      } @else if (storedName()) {
+        <strong class="filename">{{ storedName() }}</strong><span class="muted small">Gespeichertes Transkript · Originalaufnahme nicht mehr vorhanden</span>
       } @else {
         <strong>Zieh deine Aufnahme hierher</strong>
         <span class="muted small">OGG, MP3, WAV, M4A, FLAC, WebM und weitere Audioformate</span>
       }
-      <label class="file-button" [class.disabled]="busy() || merging()">{{ file() ? 'Andere Datei wählen' : 'Datei auswählen' }}<input type="file" aria-label="Audiodatei auswählen" [disabled]="busy() || merging()" (change)="select($event)"></label>
+      <label class="file-button" [class.disabled]="busy() || merging() || fileSaving()">{{ file() ? 'Andere Datei wählen' : 'Datei auswählen' }}<input type="file" aria-label="Audiodatei auswählen" [disabled]="busy() || merging() || fileSaving()" (change)="select($event)"></label>
     </div>
     @if (audioUrl()) { <audio controls [src]="audioUrl()" aria-label="Aufnahme anhören"></audio> }
     <div class="settings">
-      <label class="language-label">Sprache <select [(ngModel)]="language" [disabled]="busy() || merging()"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="auto">Automatisch erkennen</option></select></label>
-      <label class="toggle"><input type="checkbox" [(ngModel)]="useVosk" [disabled]="busy() || merging() || language !== 'de'"> Vosk-Vorschau <span class="tag">DE</span></label>
-      <button class="primary" (click)="start()" [disabled]="!file() || busy() || merging()">{{ busy() ? 'Transkription läuft …' : 'Transkribieren' }} <span aria-hidden="true">↗</span></button>
+      <label class="language-label">Sprache <select [(ngModel)]="language" [disabled]="busy() || merging() || fileSaving()"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="auto">Automatisch erkennen</option></select></label>
+      <label class="toggle"><input type="checkbox" [(ngModel)]="useVosk" [disabled]="busy() || merging() || fileSaving() || language !== 'de'"> Vosk-Vorschau <span class="tag">DE</span></label>
+      <button class="primary" (click)="start()" [disabled]="!file() || busy() || merging() || fileSaving()">{{ busy() ? 'Transkription läuft …' : 'Transkribieren' }} <span aria-hidden="true">↗</span></button>
     </div>
     <p class="privacy">Lokal verarbeitet. Für die Whisper-Analyse wird deine Aufnahme an dein Python-Backend übertragen.</p>
   </section>
@@ -48,6 +52,7 @@
 
   <section class="result-card" aria-labelledby="result-title">
     <div class="section-top"><h2 id="result-title"><span class="step">02</span> Dein Transkript</h2><div class="exports"><button class="text-button" (click)="download()" [disabled]="!finalText()">↓ TXT</button><button class="text-button" (click)="download(true)" [disabled]="!whisper() && !voskText()">↓ JSON</button></div></div>
+    @if (saveStatus()) { <p class="save-status" role="status">{{ saveStatus() }} <button class="text-button" (click)="persistFile()" [disabled]="busy() || merging() || fileSaving() || !libraryReady()">Erneut speichern</button></p> }
     <div class="tabs" role="tablist" aria-label="Ergebnisansicht">
       <button role="tab" id="tab-final" aria-controls="panel-final" [attr.aria-selected]="tab() === 'final'" [class.active]="tab() === 'final'" (click)="tab.set('final')">Finaler Text</button>
       <button role="tab" id="tab-compare" aria-controls="panel-compare" [attr.aria-selected]="tab() === 'compare'" [class.active]="tab() === 'compare'" (click)="tab.set('compare')">Vergleich</button>
@@ -55,9 +60,9 @@
     </div>
     @if (tab() === 'final') {
       <div role="tabpanel" id="panel-final" aria-labelledby="tab-final">
-      @if (finalText() || whisper()) {
+      @if (finalText() || whisper() || storedFileId()) {
         <div class="result-meta"><span class="tag">{{ finalSource() }}</span><span class="muted small">Direkt bearbeitbar</span></div>
-        <textarea aria-label="Finaler Transkripttext" [ngModel]="finalText()" (ngModelChange)="finalText.set($event); finalSource.set('Manuell bearbeitet')" [disabled]="busy() || merging()" placeholder="Keine Sprache erkannt."></textarea>
+        <textarea aria-label="Finaler Transkripttext" [ngModel]="finalText()" (ngModelChange)="editFinal($event)" [disabled]="busy() || merging()" placeholder="Keine Sprache erkannt."></textarea>
       } @else {
         <div class="empty"><span class="empty-lines" aria-hidden="true">≡</span><h3>Hier bekommen deine Worte Platz.</h3><p>{{ busy() ? 'Die Modelle arbeiten an deiner Aufnahme. Die Vosk-Vorschau erscheint oben.' : 'Wähle eine Aufnahme und starte die Transkription.' }}</p></div>
       }
@@ -78,7 +83,7 @@
         @if (voskWords().length) { <h3 class="vosk-details-title">Vosk-Wörter</h3><p class="words">@for (word of voskWords(); track $index) { <span tabindex="0" [title]="time(word.start) + '–' + time(word.end) + ' · conf ' + word.conf">{{ word.word }}<small>{{ word.conf | number:'1.2-2' }}</small></span> }</p> }
       </div>
     }
-    <div class="llm-footer"><div><strong>Eine gemeinsame Fassung</strong><p>{{ llmEnabled() ? 'Das LLM kombiniert beide Originaltexte. Bitte prüfe das Ergebnis; es ersetzt deine Bearbeitung.' : 'Optional: Ollama-Modell im Backend konfigurieren, um beide Texte zusammenzuführen.' }}</p></div><button class="secondary" (click)="merge()" [disabled]="!llmEnabled() || !whisper()?.text || !voskText() || !!voskError() || busy() || merging()">{{ merging() ? 'Wird zusammengeführt …' : 'Mit LLM zusammenführen' }} <span aria-hidden="true">✧</span></button></div>
+    <div class="llm-footer"><div><strong>Eine gemeinsame Fassung</strong><p>{{ llmEnabled() ? 'Das LLM kombiniert beide Originaltexte. Bitte prüfe das Ergebnis; es ersetzt deine Bearbeitung.' : 'Optional: Ollama-Modell im Backend konfigurieren, um beide Texte zusammenzuführen.' }}</p></div><button class="secondary" (click)="merge()" [disabled]="!llmEnabled() || !whisper()?.text || !voskText() || !!voskError() || busy() || merging() || fileSaving()">{{ merging() ? 'Wird zusammengeführt …' : 'Mit LLM zusammenführen' }} <span aria-hidden="true">✧</span></button></div>
   </section>
   </div>
   <footer><span>little stt</span><span>Klein gehalten. Zum genauen Hinhören.</span></footer>

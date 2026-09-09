@@ -4,9 +4,12 @@ Stand: 9. September 2026. Planungsdokument für das bestehende Projekt `little-s
 Die hier beschriebenen Lernfunktionen sind noch nicht implementiert.
 
 Inzwischen existiert zusätzlich der [Live-Modus](LIVE.md): Mikrofonaufnahme,
-Vosk-Vorschau, periodische Whisper-Abschnitte und eine lokale Browser-Sitzung.
-Diese Browserablage ist noch kein geprüfter Trainingsbestand. Der hier geplante
-Backend-Datenspeicher und die Freigabe von Trainingsbeispielen bleiben erforderlich.
+Vosk-Vorschau und periodische Whisper-Abschnitte. Die [Bibliothek](BIBLIOTHEK.md)
+verwaltet mehrere Sitzungen, Datei-Transkripte, Ordner und eine lokale Textfreigabe.
+Sie ist noch kein Trainingsbestand: Die Textfreigabe ersetzt keine Freigabe zur
+Trainingsnutzung. Standardmäßig wird Audio nach der Textfreigabe gelöscht; für
+künftige akustische Anpassung bewusst „Audio behalten“ wählen und Audio separat
+sichern. Der hier geplante Backend-Datenspeicher bleibt erforderlich.
 
 **Ziel:** Die Anwendung sammelt auf Wunsch Audio mit überprüften Transkripten,
 erzeugt daraus angepasste Vosk-Modelle und weist deren Qualität vor dem Einsatz
@@ -21,8 +24,9 @@ Die Sprachmodellanpassung allein ist ein eigenständig nutzbares Ergebnis.
 
 Vorhanden sind Angular 21, FastAPI, faster-whisper mit `base` auf CPU/int8,
 vosk-browser mit `vosk-model-small-de-0.15`, ein optionaler Ollama-Aufruf sowie
-TXT-/JSON-Export. Audio wird temporär verarbeitet. Ergebnisse und manuelle
-Bearbeitungen leben bisher im Browserzustand und gehen beim Neuladen verloren.
+TXT-/JSON-Export. Das Backend verarbeitet Audio temporär. Ergebnisse und manuelle Bearbeitungen
+bleiben inzwischen in der lokalen Browserbibliothek über Neuladen hinweg erhalten.
+Eine serverseitige Sammlung, Trainingsfreigabe und Datenexport für Kaldi fehlen noch.
 
 Im tatsächlich heruntergeladenen Vosk-Archiv liegen unter anderem
 `am/final.mdl`, `graph/Gr.fst`, `graph/HCLr.fst`, Konfiguration und iVector-Dateien.

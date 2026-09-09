@@ -14,6 +14,7 @@ async function fixture() {
   const component = runInInjectionContext(injector, () => new LiveComponent());
   await component['store'].open(); await component['store'].clear(); component.storageReady.set(true);
   component.session.set({id: 's', created: '', duration: 1, interval: 300, language: 'de', preview: '', partial: '', words: [], state: 'stopped', warning: ''});
+  await component['store'].saveSession(component.session()!);
   const chunk: LiveChunk = {id: 'c', sessionId: 's', sequence: 0, windowStart: 0, coreStart: 0, coreEnd: 16000,
     status: 'queued', attempts: 0, retryAt: 0, error: '', preview: 'Vorschau', suggestion: '', boundaryUncertain: false};
   component.chunks.set([chunk]); await component['store'].add(chunk, new Blob(['wav']));
@@ -63,4 +64,17 @@ it('retains the WAV after an offline failure and sends no requests while paused'
   component.paused.set(true); await component['pump'](); expect(fetcher).not.toHaveBeenCalled();
   component.paused.set(false); await component['pump'](); await component['saves'];
   expect(component.chunks()[0].status).toBe('retry'); expect(await (await component['store'].audio('c'))!.text()).toBe('wav');
+});
+
+it('recovers a WAV and edited text after a storage quota failure without discarding either', async () => {
+  const component = await fixture();
+  component.saveFailed.set(true); component['volatileAudio'].set('c', new Blob(['recovered audio']));
+  component.chunks.set([{...component.chunks()[0], status: 'done', draft: 'Nicht verlieren'}]);
+  const add = vi.spyOn(component['store'], 'add').mockRejectedValueOnce(new DOMException('Full', 'QuotaExceededError'));
+  await expect(component.flush()).rejects.toThrow('nicht vollständig gespeichert');
+  await component.retryStorage(); expect(component.saveFailed()).toBe(true); expect(component['volatileAudio'].size).toBe(1);
+  await component.retryStorage(); expect(component.saveFailed()).toBe(false); expect(component['volatileAudio'].size).toBe(0);
+  expect(await (await component['store'].audio('c'))!.text()).toBe('recovered audio');
+  expect((await component['store'].restore()).chunks[0].draft).toBe('Nicht verlieren');
+  expect(add).toHaveBeenCalledTimes(2); await expect(component.flush()).resolves.toBeUndefined();
 });
